@@ -36,50 +36,49 @@ All commands should exit cleanly and output their respective version strings.
 
 ## 3. Python Virtual Environment Setup
 
-To keep dependencies isolated from your system Python installation, create a virtual environment in the `backend/` directory or project root:
+To keep dependencies isolated, XakuMedia keeps its virtual environment inside `backend/.venv`:
 
 ```powershell
-# Create dedicated virtual environment
-python -m venv .venv
+# 1. Create dedicated virtual environment inside backend/
+python -m venv backend/.venv
 
-# Activate the virtual environment
-.\.venv\Scripts\Activate.ps1
+# 2. Upgrade pip and build tools
+.\backend\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
 
-# Upgrade pip and install build tools
-python -m pip install --upgrade pip setuptools wheel
+# 3. Install backend engine in editable mode with development tooling
+.\backend\.venv\Scripts\python.exe -m pip install -e "backend[dev]"
 ```
-
-> **Note on PowerShell Script Execution:**  
-> If PowerShell blocks activating the script with an execution policy error, run:  
-> `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
 
 ---
 
-## 4. Frontend & Electron Setup
+## 4. Frontend & Desktop Setup
 
-Once the project package manifest is initialized (Milestone 2/3):
+Frontend dependencies are isolated inside `frontend/node_modules/`:
 
 ```powershell
-# Install Node dependencies
-npm install
+# Install frontend dependencies
+npm --prefix frontend install
 
 # Run Vite development server
-npm run dev
+npm run dev:frontend
 ```
 
 ---
 
-## 5. Verification Commands
+## 5. Workspace Verification Commands
 
-Run targeted checks to ensure your local environment is functioning:
+Convenient root scripts allow orchestrating all subsystems from the project root:
 
 ```powershell
+# Typecheck frontend
+npm run typecheck:frontend
+
+# Build frontend production bundle
+npm run build:frontend
+
+# Run Python automated tests
+npm run test:python
+
 # Run Python linter
-ruff check backend/
-
-# Run Python unit tests
-pytest backend/
-
-# Run frontend type checking
-npm run typecheck
+npm run lint:python
 ```

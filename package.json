@@ -1,0 +1,15 @@
+{
+  "name": "xakumedia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Windows Desktop Bulk Media Downloader",
+  "scripts": {
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:frontend": "npm --prefix frontend run build",
+    "typecheck:frontend": "npm --prefix frontend run typecheck",
+    "test:python": ".\\backend\\.venv\\Scripts\\pytest backend/",
+    "lint:python": ".\\backend\\.venv\\Scripts\\ruff check backend/",
+    "install:frontend": "npm --prefix frontend install",
+    "install:backend": ".\\backend\\.venv\\Scripts\\pip install -e \"backend[dev]\""
+  }
+}

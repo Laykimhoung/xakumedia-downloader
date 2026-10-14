@@ -1,7 +1,7 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 14, 2026  
-**Active Milestone:** Milestone 1 — Repository Foundation  
+**Active Milestone:** Milestone 2 — Runtime and Dependency Setup  
 **Overall Status:** Active Setup & Foundation  
 
 ---
@@ -23,8 +23,8 @@ The system relies on a secure 3-tier desktop architecture:
 | :--- | :--- | :--- | :--- |
 | **Milestone 0** | Environment and Project Inspection | **Completed** | Inspected Python 3.12.10, Node v24.14.0, npm 11.9.0, Git 2.52.0, FFmpeg/FFprobe n4.4.2. Verified intact existing instructions. |
 | **Milestone 1** | Repository Foundation | **Completed** | Initialized Git on `main`; verified `.gitignore` excludes `my-learning/` and `.agents/`; created README.md, docs/ARCHITECTURE.md, docs/SETUP.md, docs/DEVELOPMENT_ROADMAP.md, and personal learning session 001. |
-| **Milestone 2** | Runtime and Dependency Setup | **In Progress** | Python virtual environment (`.venv`), `pyproject.toml`, frontend `package.json`. |
-| **Milestone 3** | Minimal Electron & React Shell | Planned | Electron main process, secure preload bridge, Vite dev server, base layout. |
+| **Milestone 2** | Runtime and Dependency Setup | **Completed** | Dedicated Python `.venv` created; `backend/pyproject.toml` configured with `httpx`, `platformdirs`, `pydantic`, `pillow`, `pytest`, `ruff`; editable install verified; pytest smoke test passed in 0.08s; ruff check passed; `package.json` initialized with React, Vite, TS, Tailwind, Electron; `npm install` completed (204 packages); `npx vite` (5.4.21) and `npx electron` (v33.4.11) verified. |
+| **Milestone 3** | Minimal Electron & React Shell | **In Progress** | Electron main process, secure preload bridge, Vite dev server, base layout. |
 | **Milestone 4** | Python Engine Foundation | Planned | Core package structure, domain models, error handling, structured logging. |
 | **Milestone 5** | Electron-to-Python Communication | Planned | Validated child-process stdio/JSON-RPC IPC boundary. |
 
@@ -40,26 +40,40 @@ The system relies on a secure 3-tier desktop architecture:
   - FFmpeg: `n4.4.2-4-g944ee75106-20220916`
   - FFprobe: `n4.4.2-4-g944ee75106-20220916`
 - **Repository Structure:**
-  - Git initialized (`main` branch).
+  - Git initialized (`main` branch) and committed initial foundation (`5c01537`).
   - Production-grade `.gitignore` protecting caches, venv, node_modules, downloads, database files, and personal learning directories.
   - Universal and project-specific agent instructions (`AGENTS.md`, `.agents/AGENTS.md`).
+- **Backend & Python Tooling:**
+  - Dedicated virtual environment isolated at `backend/.venv/` (zero root clutter).
+  - `backend/pyproject.toml` adhering to PEP 621.
+  - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`.
+  - Developer tooling installed and passing: `pytest` (1 passed in 0.02s), `ruff` (all checks passed).
+- **Frontend & Desktop Tooling:**
+  - Modular `frontend/package.json` with React 18, Vite 5, Tailwind CSS 3, TypeScript 5, Electron 33.
+  - Dependencies isolated in `frontend/node_modules/` (zero root clutter).
+  - Tooling configs: `frontend/tsconfig.json`, `frontend/vite.config.ts`, `frontend/tailwind.config.js`, `frontend/postcss.config.js`.
+  - Production build verified: `vite build` generated in 1.14s (`frontend/dist/`).
+  - Strict type checking verified: `tsc --noEmit` cleanly passed.
+- **Root Workspace Orchestration:**
+  - Root `package.json` acts as a zero-dependency workspace coordinator with scripts (`dev:frontend`, `build:frontend`, `typecheck:frontend`, `test:python`, `lint:python`).
+  - Skeleton modular directories established with `.gitkeep`: `desktop/{main,preload,shared}`, `scripts/`, `frontend/src/{components,features,layouts,pages,hooks,services,types,utils,styles}`.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- No runtime packages installed yet (intentionally deferred to Milestone 2 to maintain small verifiable steps).
-- Python virtual environment and frontend workspace not yet initialized.
+- Electron main process script (`desktop/main/index.ts`) and preload bridge (`desktop/preload/index.ts`) not yet implemented (scheduled for Milestone 3).
+- Electron dev runner to launch Electron and Vite simultaneously is scheduled for Milestone 3.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 2 — Runtime and Dependency Setup**
+**Next Milestone:** **Milestone 3 — Minimal Electron and React Shell**
 
 ### Acceptance Criteria:
-1. Dedicated Python virtual environment (`.venv`) created and verified with Python 3.12.
-2. Initial `pyproject.toml` created with baseline dependencies (`httpx`, `platformdirs`, `pydantic`, `pytest`, `ruff`).
-3. Root or frontend `package.json` initialized with compatible scripts and tooling.
-4. Python dependencies successfully installed and verified with import tests.
-5. Setup instructions documented in `docs/SETUP.md`.
+1. Establish Electron main process script with secure defaults (`contextIsolation: true`, `nodeIntegration: false`).
+2. Establish secure preload script with validated IPC bridge.
+3. Establish React entry point (`index.html`, `frontend/src/app/App.tsx`, `frontend/src/index.css`).
+4. Establish Vite build and dev configuration for desktop development.
+5. Application launches and renders the base window without console or security errors.

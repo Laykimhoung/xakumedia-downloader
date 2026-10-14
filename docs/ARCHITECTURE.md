@@ -88,3 +88,65 @@ XakuMedia enforces strict directory segregation:
   - Saved sources & scan histories.
   - Media metadata & thumbnails.
   - Persistent download queue with restart recovery.
+
+---
+
+## 4. Directory Layout & Modular Workspaces
+
+XakuMedia enforces strict filesystem modularity to avoid root-level clutter:
+
+```text
+xakumedia/
+├── AGENTS.md               # Universal shared project instructions
+├── README.md               # Project overview & essential usage
+├── .gitignore              # Multi-tier exclusion rules
+├── package.json            # Root workspace orchestrator (zero dependencies)
+│
+├── frontend/               # Self-contained React + Vite frontend
+│   ├── package.json        # Frontend manifest & build scripts
+│   ├── package-lock.json   # Frontend dependency lockfile
+│   ├── node_modules/       # Frontend dependencies (gitignored)
+│   ├── index.html          # SPA entry HTML
+│   ├── vite.config.ts      # Vite configuration & path aliases
+│   ├── tsconfig.json       # TypeScript compiler options
+│   ├── tailwind.config.js  # Brand styling tokens
+│   ├── postcss.config.js   # CSS transformation plugins
+│   ├── public/             # Static public assets
+│   └── src/                # Modular UI source
+│       ├── assets/         # Embedded images, icons, fonts
+│       ├── components/     # Reusable UI primitives
+│       ├── features/       # Feature-specific components (scanner, library)
+│       ├── layouts/        # Shell layouts (sidebar, titlebar)
+│       ├── pages/          # Application views
+│       ├── hooks/          # Custom React hooks
+│       ├── services/       # Desktop IPC bridge wrappers
+│       ├── types/          # Frontend TypeScript contracts
+│       ├── utils/          # Formatting and helper utilities
+│       └── styles/         # Global styles & Tailwind directives
+│
+├── desktop/                # Electron desktop shell
+│   ├── main/               # Electron main process & child-process manager
+│   ├── preload/            # Context-isolated secure preload bridge
+│   └── shared/             # Shared IPC types and contracts
+│
+├── backend/                # Python 3.12 media engine
+│   ├── pyproject.toml      # PEP 621 package metadata & dev tooling
+│   ├── .venv/              # Isolated virtual environment (gitignored)
+│   ├── src/xakumedia/      # Media engine modules
+│   └── tests/              # Pytest automated test suite
+│
+├── scripts/                # Developer & automation scripts
+├── docs/                   # Architectural blueprints & roadmap
+│   ├── CURRENT_STATE.md    # Active milestone status & verification records
+│   ├── ARCHITECTURE.md     # System boundaries & IPC design
+│   ├── SETUP.md            # Environment setup & developer guide
+│   └── DEVELOPMENT_ROADMAP.md # Detailed milestone milestones & acceptance criteria
+│
+├── .agents/                # Project agent instructions & learning system (local)
+└── my-learning/            # Personal educational walkthroughs (local)
+```
+
+**Key Architectural Separation:**
+1. **Zero Root Dependencies:** Root `package.json` contains no packages, only delegation scripts (`npm --prefix frontend ...`).
+2. **Encapsulated Dependencies:** Node packages are strictly contained in `frontend/node_modules/`; Python packages are strictly contained in `backend/.venv/`.
+3. **Independent Lifecycles:** Frontend and backend can be tested and built independently without dependency cross-talk.

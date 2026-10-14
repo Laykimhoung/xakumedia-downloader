@@ -47,16 +47,39 @@ xakumedia/
 ├── AGENTS.md               # Universal AI agent instructions
 ├── README.md               # Project overview and instructions
 ├── .gitignore              # Repository exclusions (venv, node_modules, cache, media)
-├── desktop/                # Electron main process and preload scripts
-├── frontend/               # Vite + React + TypeScript UI
-├── backend/                # Python 3.12 media engine and CLI
-├── docs/                   # Architectural blueprints and roadmap
-│   ├── CURRENT_STATE.md    # Active milestone status and verification records
-│   ├── ARCHITECTURE.md     # System boundaries and IPC design
-│   ├── SETUP.md            # Environment setup and developer guide
-│   └── DEVELOPMENT_ROADMAP.md # Detailed milestone milestones and acceptance criteria
-├── .agents/                # Project agent instructions & learning system
-└── my-learning/            # Personal educational walkthroughs (local-only)
+├── package.json            # Root workspace orchestrator (zero dependencies)
+│
+├── frontend/               # Vite + React + TypeScript desktop UI
+│   ├── package.json        # Frontend dependencies & scripts
+│   ├── package-lock.json   # Frontend dependency lockfile
+│   ├── index.html          # HTML application shell
+│   ├── vite.config.ts      # Vite configuration & path aliases
+│   ├── tsconfig.json       # TypeScript compiler settings
+│   ├── tailwind.config.js  # Dark/light brand theme configuration
+│   ├── postcss.config.js   # CSS transformation plugins
+│   ├── public/             # Static public assets
+│   └── src/                # Modular UI source (components, features, styles)
+│
+├── desktop/                # Electron desktop shell
+│   ├── main/               # Electron main process
+│   ├── preload/            # Context-isolated secure preload bridge
+│   └── shared/             # Shared IPC types and contracts
+│
+├── backend/                # Python 3.12 media engine
+│   ├── pyproject.toml      # Python package metadata (PEP 621)
+│   ├── .venv/              # Isolated virtual environment (gitignored)
+│   ├── src/xakumedia/      # Media engine modules
+│   └── tests/              # Pytest automated test suite
+│
+├── scripts/                # Developer & automation scripts
+├── docs/                   # Architectural blueprints & roadmap
+│   ├── CURRENT_STATE.md    # Active milestone status & verification records
+│   ├── ARCHITECTURE.md     # System boundaries & IPC design
+│   ├── SETUP.md            # Environment setup & developer guide
+│   └── DEVELOPMENT_ROADMAP.md # Detailed milestone milestones & acceptance criteria
+│
+├── .agents/                # Project agent instructions & learning system (local)
+└── my-learning/            # Personal educational walkthroughs (local)
 ```
 
 ---
