@@ -1,0 +1,104 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.so
+
+# Python packaging and build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+wheels/
+pip-wheel-metadata/
+
+# Python testing and tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!.env.template
+!.env.sample
+
+# Logs and temporary files
+*.log
+logs/
+log/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# SQLite databases and database sidecars
+*.db
+*.db3
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Downloaded media and user-generated content
+downloads/
+media/
+output/
+outputs/
+
+# Thumbnail caches and generated previews
+thumbnail-cache/
+thumbnails/
+.cache/
+cache/
+
+# Electron and frontend build artifacts
+dist-electron/
+release/
+out/
+.vite/
+*.tsbuildinfo
+
+# Frontend test and coverage output
+coverage/
+playwright-report/
+test-results/
+
+# Local application data
+data/
+userdata/
+
+# Personal AI configuration
+.agents/
+my-learning/
+
+# Editor and operating system files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local environment and machine-specific configuration
+.python-version.local
+.npmrc.local
