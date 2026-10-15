@@ -1,7 +1,7 @@
 # XakuMedia — Current Project State
 
-**Last Updated:** October 14, 2026  
-**Active Milestone:** Milestone 2 — Runtime and Dependency Setup  
+**Last Updated:** October 15, 2026  
+**Active Milestone:** Milestone 5 — Electron-to-Python Communication  
 **Overall Status:** Active Setup & Foundation  
 
 ---
@@ -25,7 +25,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 1** | Repository Foundation | **Completed** | Initialized Git on `main`; verified `.gitignore` excludes `my-learning/` and `.agents/`; created README.md, docs/ARCHITECTURE.md, docs/SETUP.md, docs/DEVELOPMENT_ROADMAP.md, and personal learning session 001. |
 | **Milestone 2** | Runtime and Dependency Setup | **Completed** | Dedicated Python `.venv` created; `backend/pyproject.toml` configured with `httpx`, `platformdirs`, `pydantic`, `pillow`, `pytest`, `ruff`; editable install verified; pytest smoke test passed in 0.08s; ruff check passed; `package.json` initialized with React, Vite, TS, Tailwind, Electron; `npm install` completed (204 packages); `npx vite` (5.4.21) and `npx electron` (v33.4.11) verified. |
 | **Milestone 3** | Minimal Electron & React Shell | **Completed** | Implemented secure Electron main process (`desktop/main/index.ts`) with contextIsolation, strict CSP, sandbox, and single-instance lock; created validated preload bridge (`desktop/preload/index.ts`) exposing typed `DesktopApi`; built desktop bundler (`scripts/build-desktop.mjs`) and dev orchestrator (`scripts/dev.mjs`); built polished React layout in `frontend/src/App.tsx`; verified automated startup and window paint via `npm run test:desktop`. |
-| **Milestone 4** | Python Engine Foundation | **In Progress** | Core package structure, domain models, error handling, structured logging. |
+| **Milestone 4** | Python Engine Foundation | **Completed** | Modular package under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`); Pydantic V2 domain models (`MediaItem`, `MediaFormatInfo`, `DownloadTask`, `AppConfig`); Windows-safe sequential naming (`{user}_{vdo\|img}_{001}`) & disk sequence scanning; path traversal prevention (`validate_destination_path`); 17 unit tests passing (`npm run test:python`); 0 lint errors (`npm run lint:python`). |
 | **Milestone 5** | Electron-to-Python Communication | Planned | Validated child-process stdio/JSON-RPC IPC boundary. |
 
 ---
@@ -62,24 +62,30 @@ The system relies on a secure 3-tier desktop architecture:
   - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, and graceful exit.
 - **Root Workspace Orchestration:**
   - Root `package.json` acts as a zero-dependency workspace coordinator with scripts (`dev`, `start`, `test:desktop`, `dev:frontend`, `build:all`, `test:python`, `lint:python`).
+- **Python Engine Foundation (Milestone 4):**
+  - Package structure: `backend/src/xakumedia/` (`core/`, `exceptions/`, `models/`, `utils/`).
+  - Domain models: `MediaItem`, `MediaFormatInfo`, `DownloadTask`, `ProgressUpdate`, `ClassifiedUrl`, `AppConfig` implemented with Pydantic V2.
+  - Windows naming & anti-collision: `sanitize_username` trims illegal characters and boundary underscores; `format_sequential_filename` enforces `{username}_{vdo|img}_{001}.{ext}` with dynamic 4+ digit expansion; `get_next_sequence_number` scans disk so files are never overwritten.
+  - Path traversal security: `validate_destination_path` enforces target paths reside strictly inside authorized roots.
+  - Test suite: 17 unit tests under `backend/tests/` passing in 0.63s; Ruff linting passed cleanly with 0 errors.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Python engine package (`backend/src/xakumedia/`) does not yet contain domain models, URL classification schemas, or structured logging (scheduled for Milestone 4).
-- Electron-to-Python IPC communication via child process stdio is scheduled for Milestone 5.
+- Electron main process does not yet spawn or communicate with the Python backend process (scheduled for Milestone 5).
+- Web media extraction providers (`yt-dlp`, `gallery-dl`, `httpx`) will be integrated in Milestone 6 following IPC boundary completion.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 4 — Python Engine Foundation**
+**Next Milestone:** **Milestone 5 — Electron-to-Python Communication**
 
 ### Acceptance Criteria:
-1. Establish modular Python package structure under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`).
-2. Define Pydantic domain models for normalized media items, URL classifications, video resolutions, formats, and task states.
-3. Establish shared exception hierarchies and domain error representations.
-4. Configure structured JSON/console logging with configurable log levels.
-5. Implement unit tests under `backend/tests/` verifying data validation, serialization, and edge cases.
-6. Verify all tests pass with `npm run test:python` and code passes `npm run lint:python`.
+1. Define typed JSON-RPC request/response protocol models shared across TypeScript and Python.
+2. Implement Python stdio JSON-RPC server entry point (`python -m xakumedia.server` or `cli.py`) handling requests via standard input/output.
+3. Implement robust child process manager in Electron (`desktop/main/python-bridge.ts`) handling process spawning, lifecycle, heartbeat/ping, graceful shutdown, and crash recovery.
+4. Expose typed IPC endpoints via Electron's context-isolated preload script to the frontend renderer.
+5. Provide automated test verifying that the Electron shell spawns the Python backend, successfully exchanges a `ping` / `version` request, and shuts down cleanly without zombie processes.
+6. Verify end-to-end with automated checks and update documentation and personal learning notes.
