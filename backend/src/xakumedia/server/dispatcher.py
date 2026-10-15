@@ -104,7 +104,21 @@ class RpcDispatcher:
         def echo_handler(params: dict[str, Any]) -> dict[str, Any]:
             return params
 
+        def classify_url_handler(params: dict[str, Any]) -> dict[str, Any]:
+            url = params.get("url")
+            if not url or not isinstance(url, str):
+                raise TypeError("Parameter 'url' is required and must be a string.")
+
+            from ..scanners.direct import classify_direct_url
+
+            classified, media_item = classify_direct_url(url)
+            return {
+                "classified_url": classified.model_dump(),
+                "media_item": media_item.model_dump() if media_item else None,
+            }
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
         self.register("echo", echo_handler)
+        self.register("classify_url", classify_url_handler)

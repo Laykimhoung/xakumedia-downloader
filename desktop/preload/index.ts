@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  ClassifyUrlResult,
   DesktopApi,
   PythonBridgeStatus,
   PythonPingResult,
@@ -30,6 +31,9 @@ const api: DesktopApi = {
   },
   getPythonStatus: async (): Promise<PythonBridgeStatus> => {
     return ipcRenderer.invoke("python:getStatus");
+  },
+  classifyUrl: async (url: string): Promise<ClassifyUrlResult> => {
+    return ipcRenderer.invoke("python:classifyUrl", url);
   },
 };
 

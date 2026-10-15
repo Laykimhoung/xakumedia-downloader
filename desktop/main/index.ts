@@ -63,6 +63,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle("python:getStatus", async () => {
     return pythonBridge.getStatus();
   });
+
+  ipcMain.handle("python:classifyUrl", async (_event, url: string) => {
+    return pythonBridge.sendRequest("classify_url", { url });
+  });
 }
 
 function createWindow(): void {
@@ -113,6 +117,18 @@ function createWindow(): void {
         console.log(
           `[smoke-test] Python ping round-trip verified: ${pingResponse.status} / ${pingResponse.message} (v${pingResponse.version})`
         );
+
+        // Verify SSRF defense over IPC
+        try {
+          await pythonBridge.sendRequest("classify_url", {
+            url: "http://127.0.0.1/local_video.mp4",
+          });
+          console.error("[smoke-test] FAILED: SSRF check did not block loopback address!");
+          process.exit(1);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`[smoke-test] SSRF IPC defense verified: ${msg}`);
+        }
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);
         process.exit(1);

@@ -31,6 +31,8 @@ from .models import (
     VideoContainer,
     VideoResolution,
 )
+from .scanners import classify_direct_url, probe_direct_url
+from .utils.security import validate_url_security
 
 __version__ = "0.1.0"
 
@@ -65,4 +67,7 @@ __all__ = [
     "TaskStatus",
     "ProgressUpdate",
     "DownloadTask",
+    "classify_direct_url",
+    "probe_direct_url",
+    "validate_url_security",
 ]

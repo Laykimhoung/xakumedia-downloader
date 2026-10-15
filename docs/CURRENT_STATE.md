@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 15, 2026  
-**Active Milestone:** Milestone 6 — Direct URL Detection  
-**Overall Status:** Active Setup & Foundation  
+**Active Milestone:** Milestone 7 — First Real Video Extraction (yt-dlp)  
+**Overall Status:** Core Extraction & Scanning Phase  
 
 ---
 
@@ -27,6 +27,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 3** | Minimal Electron & React Shell | **Completed** | Implemented secure Electron main process (`desktop/main/index.ts`) with contextIsolation, strict CSP, sandbox, and single-instance lock; created validated preload bridge (`desktop/preload/index.ts`) exposing typed `DesktopApi`; built desktop bundler (`scripts/build-desktop.mjs`) and dev orchestrator (`scripts/dev.mjs`); built polished React layout in `frontend/src/App.tsx`; verified automated startup and window paint via `npm run test:desktop`. |
 | **Milestone 4** | Python Engine Foundation | **Completed** | Modular package under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`); Pydantic V2 domain models (`MediaItem`, `MediaFormatInfo`, `DownloadTask`, `AppConfig`); Windows-safe sequential naming (`{user}_{vdo\|img}_{001}`) & disk sequence scanning; path traversal prevention (`validate_destination_path`); 17 unit tests passing (`npm run test:python`); 0 lint errors (`npm run lint:python`). |
 | **Milestone 5** | Electron-to-Python Communication | **Completed** | Python stdio JSON-RPC 2.0 server (`xakumedia.server`); TypeScript child process manager (`desktop/main/python-bridge.ts`); validated context-isolated preload IPC bridge (`window.api.pingPython`, `getPythonSystemInfo`, `getPythonStatus`); live React UI diagnostics with round-trip ping measurement; automated smoke test verified end-to-end handshake and clean EOF shutdown without zombie processes; 24 unit tests passing. |
+| **Milestone 6** | Direct URL Detection | **Completed** | Direct scanner (`scanners/direct.py`) inspecting MIME headers, content lengths, and filenames; SSRF defense (`utils/security.py`) blocking private IPs, loopbacks, and metadata endpoints; `classify_url` RPC handler exposed via IPC bridge (`window.api.classifyUrl`); interactive React scanning interface with quick presets and live media discovery preview card; 37 unit tests passing; smoke test asserting SSRF defense over IPC. |
 
 ---
 
@@ -75,23 +76,30 @@ The system relies on a secure 3-tier desktop architecture:
   - React UI: Real-time diagnostics dashboard displaying Python PID, connection state, round-trip latency, and runtime directories.
   - Automated Verification: End-to-end desktop smoke test verified handshake, ping/pong, and clean shutdown; 24 Python unit tests passing in 0.46s; 0 lint errors.
 
+- **Direct Media URL Detection & SSRF Defense (Milestone 6):**
+  - Direct Scanner: `scanners/direct.py` inspecting MIME types, headers (`Content-Type`, `Content-Length`, `Content-Disposition`), handling HEAD and Range GET fallbacks, and synthesizing `ClassifiedUrl` and `MediaItem` models.
+  - SSRF Protections: `utils/security.py` blocking loopback, link-local, private subnets, cloud metadata IPs, and local hostnames.
+  - IPC Integration: `classify_url` RPC method wired to `window.api.classifyUrl` in Electron preload bridge.
+  - React UI: Interactive scanning bar with quick presets, active loading states, error cards, and rich media discovery preview cards.
+  - Automated Verification: 37 unit tests passing in 0.43s; desktop smoke test asserting end-to-end SSRF defense over IPC.
+
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Direct media URL detection and platform extraction adapters (`httpx`, `yt-dlp`, `gallery-dl`) are scheduled for Milestone 6 and beyond.
+- Single video and multi-item gallery platform extraction (`yt-dlp`, `gallery-dl`) are scheduled for Milestones 7 & 8.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 6 — Direct URL Detection**
+**Next Milestone:** **Milestone 7 — First Real Video Extraction (yt-dlp)**
 
 ### Acceptance Criteria:
-1. Implement URL classification module (`backend/src/xakumedia/scanners/direct.py`) using `httpx` to probe remote URLs via HTTP HEAD and GET.
-2. Inspect `Content-Type` headers, `Content-Disposition`, and content length to classify direct media files (JPEG, PNG, WebP, GIF, MP4, WebM, etc.).
-3. Reject HTML pages, streaming manifests, and arbitrary binary payloads with appropriate domain errors.
-4. Implement SSRF security filters to block loopback and local network addresses (`127.0.0.1`, `localhost`, `10.0.0.0/8`, `192.168.0.0/16`, `169.254.169.254`).
-5. Register `classify_url` method in `RpcDispatcher` and expose via Electron IPC bridge to the frontend.
-6. Build unit tests with mocked network responses verifying classification accuracy and security filters.
-7. Verify end-to-end with automated checks and update learning notes.
+1. Verify `yt-dlp` availability and integration in the isolated Python environment.
+2. Build video extraction adapter (`backend/src/xakumedia/extractors/video.py`) invoking `yt-dlp` in non-download metadata extraction mode (`extract_info(download=False)`).
+3. Normalize video formats, resolutions (1080p, 720p, 480p, 360p), containers (MP4, WebM), audio/video streams, thumbnails, titles, authors, and duration into `MediaItem`.
+4. Distinguish formats requiring stream merging (`requires_merge: true`) from progressive single streams.
+5. Handle platform-specific access restrictions, private videos, and rate limits with domain exceptions (`RateLimitError`, `MediaUnavailableError`).
+6. Expose `extract_video` via RPC dispatcher and desktop IPC bridge.
+7. Build unit tests with mocked `yt-dlp` info dictionaries and verify with `npm run test`.
