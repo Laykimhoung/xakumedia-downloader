@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopApi, SystemInfo } from "../shared/types";
+import type {
+  DesktopApi,
+  PythonBridgeStatus,
+  PythonPingResult,
+  PythonSystemInfoResult,
+  SystemInfo,
+} from "../shared/types";
 
 /**
  * Validated desktop bridge exposed to the renderer under window.api.
@@ -15,6 +21,15 @@ const api: DesktopApi = {
   },
   getSystemInfo: async (): Promise<SystemInfo> => {
     return ipcRenderer.invoke("app:getSystemInfo");
+  },
+  pingPython: async (): Promise<PythonPingResult> => {
+    return ipcRenderer.invoke("python:ping");
+  },
+  getPythonSystemInfo: async (): Promise<PythonSystemInfoResult> => {
+    return ipcRenderer.invoke("python:getSystemInfo");
+  },
+  getPythonStatus: async (): Promise<PythonBridgeStatus> => {
+    return ipcRenderer.invoke("python:getStatus");
   },
 };
 

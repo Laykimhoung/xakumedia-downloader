@@ -1,7 +1,7 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 15, 2026  
-**Active Milestone:** Milestone 5 — Electron-to-Python Communication  
+**Active Milestone:** Milestone 6 — Direct URL Detection  
 **Overall Status:** Active Setup & Foundation  
 
 ---
@@ -26,7 +26,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 2** | Runtime and Dependency Setup | **Completed** | Dedicated Python `.venv` created; `backend/pyproject.toml` configured with `httpx`, `platformdirs`, `pydantic`, `pillow`, `pytest`, `ruff`; editable install verified; pytest smoke test passed in 0.08s; ruff check passed; `package.json` initialized with React, Vite, TS, Tailwind, Electron; `npm install` completed (204 packages); `npx vite` (5.4.21) and `npx electron` (v33.4.11) verified. |
 | **Milestone 3** | Minimal Electron & React Shell | **Completed** | Implemented secure Electron main process (`desktop/main/index.ts`) with contextIsolation, strict CSP, sandbox, and single-instance lock; created validated preload bridge (`desktop/preload/index.ts`) exposing typed `DesktopApi`; built desktop bundler (`scripts/build-desktop.mjs`) and dev orchestrator (`scripts/dev.mjs`); built polished React layout in `frontend/src/App.tsx`; verified automated startup and window paint via `npm run test:desktop`. |
 | **Milestone 4** | Python Engine Foundation | **Completed** | Modular package under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`); Pydantic V2 domain models (`MediaItem`, `MediaFormatInfo`, `DownloadTask`, `AppConfig`); Windows-safe sequential naming (`{user}_{vdo\|img}_{001}`) & disk sequence scanning; path traversal prevention (`validate_destination_path`); 17 unit tests passing (`npm run test:python`); 0 lint errors (`npm run lint:python`). |
-| **Milestone 5** | Electron-to-Python Communication | Planned | Validated child-process stdio/JSON-RPC IPC boundary. |
+| **Milestone 5** | Electron-to-Python Communication | **Completed** | Python stdio JSON-RPC 2.0 server (`xakumedia.server`); TypeScript child process manager (`desktop/main/python-bridge.ts`); validated context-isolated preload IPC bridge (`window.api.pingPython`, `getPythonSystemInfo`, `getPythonStatus`); live React UI diagnostics with round-trip ping measurement; automated smoke test verified end-to-end handshake and clean EOF shutdown without zombie processes; 24 unit tests passing. |
 
 ---
 
@@ -67,25 +67,31 @@ The system relies on a secure 3-tier desktop architecture:
   - Domain models: `MediaItem`, `MediaFormatInfo`, `DownloadTask`, `ProgressUpdate`, `ClassifiedUrl`, `AppConfig` implemented with Pydantic V2.
   - Windows naming & anti-collision: `sanitize_username` trims illegal characters and boundary underscores; `format_sequential_filename` enforces `{username}_{vdo|img}_{001}.{ext}` with dynamic 4+ digit expansion; `get_next_sequence_number` scans disk so files are never overwritten.
   - Path traversal security: `validate_destination_path` enforces target paths reside strictly inside authorized roots.
-  - Test suite: 17 unit tests under `backend/tests/` passing in 0.63s; Ruff linting passed cleanly with 0 errors.
+- **Electron-to-Python IPC Communication (Milestone 5):**
+  - Protocol: JSON-RPC 2.0 models (`JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`) over standard I/O (stdin / stdout).
+  - Python Server: `backend/src/xakumedia/server/` with unbuffered line streaming (`server.loop`), method dispatcher (`server.dispatcher`), and clean EOF shutdown.
+  - Desktop Bridge: `PythonBridge` (`desktop/main/python-bridge.ts`) managing process spawning, readline stream processing, request ID correlation, timeout handling, and graceful SIGKILL fallback.
+  - Electron Preload: Secure typed bridge (`pingPython`, `getPythonSystemInfo`, `getPythonStatus`) exposed to renderer.
+  - React UI: Real-time diagnostics dashboard displaying Python PID, connection state, round-trip latency, and runtime directories.
+  - Automated Verification: End-to-end desktop smoke test verified handshake, ping/pong, and clean shutdown; 24 Python unit tests passing in 0.46s; 0 lint errors.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Electron main process does not yet spawn or communicate with the Python backend process (scheduled for Milestone 5).
-- Web media extraction providers (`yt-dlp`, `gallery-dl`, `httpx`) will be integrated in Milestone 6 following IPC boundary completion.
+- Direct media URL detection and platform extraction adapters (`httpx`, `yt-dlp`, `gallery-dl`) are scheduled for Milestone 6 and beyond.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 5 — Electron-to-Python Communication**
+**Next Milestone:** **Milestone 6 — Direct URL Detection**
 
 ### Acceptance Criteria:
-1. Define typed JSON-RPC request/response protocol models shared across TypeScript and Python.
-2. Implement Python stdio JSON-RPC server entry point (`python -m xakumedia.server` or `cli.py`) handling requests via standard input/output.
-3. Implement robust child process manager in Electron (`desktop/main/python-bridge.ts`) handling process spawning, lifecycle, heartbeat/ping, graceful shutdown, and crash recovery.
-4. Expose typed IPC endpoints via Electron's context-isolated preload script to the frontend renderer.
-5. Provide automated test verifying that the Electron shell spawns the Python backend, successfully exchanges a `ping` / `version` request, and shuts down cleanly without zombie processes.
-6. Verify end-to-end with automated checks and update documentation and personal learning notes.
+1. Implement URL classification module (`backend/src/xakumedia/scanners/direct.py`) using `httpx` to probe remote URLs via HTTP HEAD and GET.
+2. Inspect `Content-Type` headers, `Content-Disposition`, and content length to classify direct media files (JPEG, PNG, WebP, GIF, MP4, WebM, etc.).
+3. Reject HTML pages, streaming manifests, and arbitrary binary payloads with appropriate domain errors.
+4. Implement SSRF security filters to block loopback and local network addresses (`127.0.0.1`, `localhost`, `10.0.0.0/8`, `192.168.0.0/16`, `169.254.169.254`).
+5. Register `classify_url` method in `RpcDispatcher` and expose via Electron IPC bridge to the frontend.
+6. Build unit tests with mocked network responses verifying classification accuracy and security filters.
+7. Verify end-to-end with automated checks and update learning notes.

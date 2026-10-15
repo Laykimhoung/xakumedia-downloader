@@ -1,8 +1,11 @@
 import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "path";
 import type { SystemInfo } from "../shared/types";
+import { PythonBridge } from "./python-bridge";
 
 let mainWindow: BrowserWindow | null = null;
+const pythonBridge = new PythonBridge();
+let isQuitting = false;
 
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -47,6 +50,19 @@ function registerIpcHandlers(): void {
       arch: process.arch,
     };
   });
+
+  // Python Engine IPC Handlers
+  ipcMain.handle("python:ping", async () => {
+    return pythonBridge.sendRequest("ping");
+  });
+
+  ipcMain.handle("python:getSystemInfo", async () => {
+    return pythonBridge.sendRequest("get_system_info");
+  });
+
+  ipcMain.handle("python:getStatus", async () => {
+    return pythonBridge.getStatus();
+  });
 }
 
 function createWindow(): void {
@@ -72,10 +88,37 @@ function createWindow(): void {
   });
 
   // Show window smoothly when initial frame is painted
-  mainWindow.once("ready-to-show", () => {
+  mainWindow.once("ready-to-show", async () => {
     mainWindow?.show();
     if (process.env.ELECTRON_SMOKE_TEST === "1" || process.argv.includes("--smoke-test")) {
-      console.log("[smoke-test] Electron window painted and ready-to-show event fired successfully!");
+      console.log("[smoke-test] Electron window painted and ready-to-show event fired!");
+
+      // Verify Python bridge during smoke test
+      const pyStatus = pythonBridge.getStatus();
+      console.log(
+        `[smoke-test] Python engine status: connected=${pyStatus.connected}, pid=${pyStatus.pid}`
+      );
+
+      if (!pyStatus.connected) {
+        console.error("[smoke-test] FAILED: Python engine bridge is not connected!");
+        process.exit(1);
+      }
+
+      try {
+        const pingResponse = await pythonBridge.sendRequest<{
+          status: string;
+          message: string;
+          version: string;
+        }>("ping");
+        console.log(
+          `[smoke-test] Python ping round-trip verified: ${pingResponse.status} / ${pingResponse.message} (v${pingResponse.version})`
+        );
+      } catch (err) {
+        console.error("[smoke-test] FAILED: Python ping request failed:", err);
+        process.exit(1);
+      }
+
+      console.log("[smoke-test] All smoke tests passed successfully!");
       setTimeout(() => {
         app.quit();
       }, 500);
@@ -115,9 +158,16 @@ function createWindow(): void {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   setupSecurityHeaders();
   registerIpcHandlers();
+
+  try {
+    await pythonBridge.start();
+  } catch (err) {
+    console.error("[desktop] Failed to start Python bridge:", err);
+  }
+
   createWindow();
 
   app.on("activate", () => {
@@ -125,6 +175,21 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on("before-quit", async (event) => {
+  if (!isQuitting) {
+    isQuitting = true;
+    event.preventDefault();
+    console.log("[desktop] Shutting down Python engine before quitting...");
+    try {
+      await pythonBridge.stop();
+    } catch (err) {
+      console.warn("[desktop] Error stopping Python engine:", err);
+    } finally {
+      app.quit();
+    }
+  }
 });
 
 app.on("window-all-closed", () => {
