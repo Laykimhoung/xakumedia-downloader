@@ -24,8 +24,8 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 0** | Environment and Project Inspection | **Completed** | Inspected Python 3.12.10, Node v24.14.0, npm 11.9.0, Git 2.52.0, FFmpeg/FFprobe n4.4.2. Verified intact existing instructions. |
 | **Milestone 1** | Repository Foundation | **Completed** | Initialized Git on `main`; verified `.gitignore` excludes `my-learning/` and `.agents/`; created README.md, docs/ARCHITECTURE.md, docs/SETUP.md, docs/DEVELOPMENT_ROADMAP.md, and personal learning session 001. |
 | **Milestone 2** | Runtime and Dependency Setup | **Completed** | Dedicated Python `.venv` created; `backend/pyproject.toml` configured with `httpx`, `platformdirs`, `pydantic`, `pillow`, `pytest`, `ruff`; editable install verified; pytest smoke test passed in 0.08s; ruff check passed; `package.json` initialized with React, Vite, TS, Tailwind, Electron; `npm install` completed (204 packages); `npx vite` (5.4.21) and `npx electron` (v33.4.11) verified. |
-| **Milestone 3** | Minimal Electron & React Shell | **In Progress** | Electron main process, secure preload bridge, Vite dev server, base layout. |
-| **Milestone 4** | Python Engine Foundation | Planned | Core package structure, domain models, error handling, structured logging. |
+| **Milestone 3** | Minimal Electron & React Shell | **Completed** | Implemented secure Electron main process (`desktop/main/index.ts`) with contextIsolation, strict CSP, sandbox, and single-instance lock; created validated preload bridge (`desktop/preload/index.ts`) exposing typed `DesktopApi`; built desktop bundler (`scripts/build-desktop.mjs`) and dev orchestrator (`scripts/dev.mjs`); built polished React layout in `frontend/src/App.tsx`; verified automated startup and window paint via `npm run test:desktop`. |
+| **Milestone 4** | Python Engine Foundation | **In Progress** | Core package structure, domain models, error handling, structured logging. |
 | **Milestone 5** | Electron-to-Python Communication | Planned | Validated child-process stdio/JSON-RPC IPC boundary. |
 
 ---
@@ -54,26 +54,32 @@ The system relies on a secure 3-tier desktop architecture:
   - Tooling configs: `frontend/tsconfig.json`, `frontend/vite.config.ts`, `frontend/tailwind.config.js`, `frontend/postcss.config.js`.
   - Production build verified: `vite build` generated in 1.14s (`frontend/dist/`).
   - Strict type checking verified: `tsc --noEmit` cleanly passed.
+- **Desktop Shell & Security Architecture:**
+  - Electron 33 main process in `desktop/main/index.ts` with strict security defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, webSecurity, custom CSP header enforcement).
+  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`).
+  - Fast esbuild desktop compilation (`scripts/build-desktop.mjs`) generating `desktop/dist/main.cjs` and `desktop/dist/preload.cjs`.
+  - Hot-reloading development orchestrator (`scripts/dev.mjs`).
+  - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, and graceful exit.
 - **Root Workspace Orchestration:**
-  - Root `package.json` acts as a zero-dependency workspace coordinator with scripts (`dev:frontend`, `build:frontend`, `typecheck:frontend`, `test:python`, `lint:python`).
-  - Skeleton modular directories established with `.gitkeep`: `desktop/{main,preload,shared}`, `scripts/`, `frontend/src/{components,features,layouts,pages,hooks,services,types,utils,styles}`.
+  - Root `package.json` acts as a zero-dependency workspace coordinator with scripts (`dev`, `start`, `test:desktop`, `dev:frontend`, `build:all`, `test:python`, `lint:python`).
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Electron main process script (`desktop/main/index.ts`) and preload bridge (`desktop/preload/index.ts`) not yet implemented (scheduled for Milestone 3).
-- Electron dev runner to launch Electron and Vite simultaneously is scheduled for Milestone 3.
+- Python engine package (`backend/src/xakumedia/`) does not yet contain domain models, URL classification schemas, or structured logging (scheduled for Milestone 4).
+- Electron-to-Python IPC communication via child process stdio is scheduled for Milestone 5.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 3 — Minimal Electron and React Shell**
+**Next Milestone:** **Milestone 4 — Python Engine Foundation**
 
 ### Acceptance Criteria:
-1. Establish Electron main process script with secure defaults (`contextIsolation: true`, `nodeIntegration: false`).
-2. Establish secure preload script with validated IPC bridge.
-3. Establish React entry point (`index.html`, `frontend/src/app/App.tsx`, `frontend/src/index.css`).
-4. Establish Vite build and dev configuration for desktop development.
-5. Application launches and renders the base window without console or security errors.
+1. Establish modular Python package structure under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`).
+2. Define Pydantic domain models for normalized media items, URL classifications, video resolutions, formats, and task states.
+3. Establish shared exception hierarchies and domain error representations.
+4. Configure structured JSON/console logging with configurable log levels.
+5. Implement unit tests under `backend/tests/` verifying data validation, serialization, and edge cases.
+6. Verify all tests pass with `npm run test:python` and code passes `npm run lint:python`.
