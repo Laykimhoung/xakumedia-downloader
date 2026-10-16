@@ -67,6 +67,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle("python:classifyUrl", async (_event, url: string) => {
     return pythonBridge.sendRequest("classify_url", { url });
   });
+
+  ipcMain.handle("python:extractVideo", async (_event, url: string) => {
+    return pythonBridge.sendRequest("extract_video", { url });
+  });
 }
 
 function createWindow(): void {

@@ -28,6 +28,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 4** | Python Engine Foundation | **Completed** | Modular package under `backend/src/xakumedia/` (`core/`, `models/`, `utils/`, `exceptions/`); Pydantic V2 domain models (`MediaItem`, `MediaFormatInfo`, `DownloadTask`, `AppConfig`); Windows-safe sequential naming (`{user}_{vdo\|img}_{001}`) & disk sequence scanning; path traversal prevention (`validate_destination_path`); 17 unit tests passing (`npm run test:python`); 0 lint errors (`npm run lint:python`). |
 | **Milestone 5** | Electron-to-Python Communication | **Completed** | Python stdio JSON-RPC 2.0 server (`xakumedia.server`); TypeScript child process manager (`desktop/main/python-bridge.ts`); validated context-isolated preload IPC bridge (`window.api.pingPython`, `getPythonSystemInfo`, `getPythonStatus`); live React UI diagnostics with round-trip ping measurement; automated smoke test verified end-to-end handshake and clean EOF shutdown without zombie processes; 24 unit tests passing. |
 | **Milestone 6** | Direct URL Detection | **Completed** | Direct scanner (`scanners/direct.py`) inspecting MIME headers, content lengths, and filenames; SSRF defense (`utils/security.py`) blocking private IPs, loopbacks, and metadata endpoints; `classify_url` RPC handler exposed via IPC bridge (`window.api.classifyUrl`); interactive React scanning interface with quick presets and live media discovery preview card; 37 unit tests passing; smoke test asserting SSRF defense over IPC. |
+| **Milestone 7** | First Real Video Extraction (yt-dlp) | **Completed** | Integrated `yt-dlp>=2024.8.6` into isolated Python environment; created `extractors/video.py` for metadata and stream format extraction; normalized resolutions, containers, codecs, and stream merging requirements (`requires_merge`); mapped platform errors (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`); registered `extract_video` RPC and desktop IPC bridge; interactive React format stream chips and platform video badge; 41 unit tests passing; desktop smoke test passing. |
 
 ---
 
@@ -47,8 +48,8 @@ The system relies on a secure 3-tier desktop architecture:
 - **Backend & Python Tooling:**
   - Dedicated virtual environment isolated at `backend/.venv/` (zero root clutter).
   - `backend/pyproject.toml` adhering to PEP 621.
-  - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`.
-  - Developer tooling installed and passing: `pytest` (1 passed in 0.02s), `ruff` (all checks passed).
+  - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`, `yt-dlp>=2024.8.6`.
+  - Developer tooling installed and passing: `pytest` (41 passed in 1.22s), `ruff` (all checks passed).
 - **Frontend & Desktop Tooling:**
   - Modular `frontend/package.json` with React 18, Vite 5, Tailwind CSS 3, TypeScript 5, Electron 33.
   - Dependencies isolated in `frontend/node_modules/` (zero root clutter).
@@ -57,7 +58,7 @@ The system relies on a secure 3-tier desktop architecture:
   - Strict type checking verified: `tsc --noEmit` cleanly passed.
 - **Desktop Shell & Security Architecture:**
   - Electron 33 main process in `desktop/main/index.ts` with strict security defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, webSecurity, custom CSP header enforcement).
-  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`).
+  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`).
   - Fast esbuild desktop compilation (`scripts/build-desktop.mjs`) generating `desktop/dist/main.cjs` and `desktop/dist/preload.cjs`.
   - Hot-reloading development orchestrator (`scripts/dev.mjs`).
   - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, and graceful exit.
@@ -75,31 +76,38 @@ The system relies on a secure 3-tier desktop architecture:
   - Electron Preload: Secure typed bridge (`pingPython`, `getPythonSystemInfo`, `getPythonStatus`) exposed to renderer.
   - React UI: Real-time diagnostics dashboard displaying Python PID, connection state, round-trip latency, and runtime directories.
   - Automated Verification: End-to-end desktop smoke test verified handshake, ping/pong, and clean shutdown; 24 Python unit tests passing in 0.46s; 0 lint errors.
-
 - **Direct Media URL Detection & SSRF Defense (Milestone 6):**
   - Direct Scanner: `scanners/direct.py` inspecting MIME types, headers (`Content-Type`, `Content-Length`, `Content-Disposition`), handling HEAD and Range GET fallbacks, and synthesizing `ClassifiedUrl` and `MediaItem` models.
   - SSRF Protections: `utils/security.py` blocking loopback, link-local, private subnets, cloud metadata IPs, and local hostnames.
   - IPC Integration: `classify_url` RPC method wired to `window.api.classifyUrl` in Electron preload bridge.
   - React UI: Interactive scanning bar with quick presets, active loading states, error cards, and rich media discovery preview cards.
   - Automated Verification: 37 unit tests passing in 0.43s; desktop smoke test asserting end-to-end SSRF defense over IPC.
+- **Video Platform Extraction via yt-dlp (Milestone 7):**
+  - Video Extractor: `extractors/video.py` executing `yt-dlp` in non-download metadata extraction mode (`extract_info(download=False)`).
+  - Format Normalization: `normalize_formats` filtering storyboards, sorting streams from highest resolution to lowest, and flagging adaptive video-only streams (`requires_merge: true`).
+  - Error Classification: `parse_yt_dlp_error` mapping raw error strings to domain exceptions (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`, `UnsupportedSourceError`).
+  - Unified Dispatcher: `classify_url` automatically falling back from direct file probe to `extract_video_info`; explicit `extract_video` RPC endpoint registered.
+  - Desktop Bridge & UI: `DesktopApi.extractVideo` exposed through Electron preload; React UI displays platform video badges and format stream chips (resolutions, container, merge requirements).
+  - Automated Verification: 41 unit tests passing in 1.22s; desktop smoke test passing; 0 ruff lint errors.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Single video and multi-item gallery platform extraction (`yt-dlp`, `gallery-dl`) are scheduled for Milestones 7 & 8.
+- Multi-image and multi-post gallery extraction (`gallery-dl`) is scheduled for Milestone 8.
+- Download queuing, streaming disk writes, and FFmpeg stream merging are scheduled for Milestones 10–13.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 7 — First Real Video Extraction (yt-dlp)**
+**Next Milestone:** **Milestone 8 — First Real Gallery Extraction (gallery-dl)**
 
 ### Acceptance Criteria:
-1. Verify `yt-dlp` availability and integration in the isolated Python environment.
-2. Build video extraction adapter (`backend/src/xakumedia/extractors/video.py`) invoking `yt-dlp` in non-download metadata extraction mode (`extract_info(download=False)`).
-3. Normalize video formats, resolutions (1080p, 720p, 480p, 360p), containers (MP4, WebM), audio/video streams, thumbnails, titles, authors, and duration into `MediaItem`.
-4. Distinguish formats requiring stream merging (`requires_merge: true`) from progressive single streams.
-5. Handle platform-specific access restrictions, private videos, and rate limits with domain exceptions (`RateLimitError`, `MediaUnavailableError`).
-6. Expose `extract_video` via RPC dispatcher and desktop IPC bridge.
-7. Build unit tests with mocked `yt-dlp` info dictionaries and verify with `npm run test`.
+1. Verify and configure `gallery-dl` in `backend/pyproject.toml` and the isolated virtual environment (`backend/.venv/`).
+2. Build gallery extraction adapter (`backend/src/xakumedia/extractors/gallery.py`) to discover and enumerate multi-item image collections without downloading files.
+3. Synthesize collection metadata into multiple `MediaItem` models with appropriate indexing, author names, and thumbnail links.
+4. Map gallery-specific error responses (rate limits, 404s, private/auth-locked collections).
+5. Expose gallery extraction in RPC dispatcher (`classify_url` fallback pipeline and explicit `extract_gallery` method) and desktop IPC.
+6. Display multi-item gallery grids/cards in the React UI.
+7. Unit test gallery extraction with mocked outputs and verify with `npm run test` and `npm run lint`.

@@ -109,9 +109,36 @@ class RpcDispatcher:
             if not url or not isinstance(url, str):
                 raise TypeError("Parameter 'url' is required and must be a string.")
 
+            from ..exceptions.base import UnsupportedSourceError
+            from ..extractors.video import extract_video_info
             from ..scanners.direct import classify_direct_url
 
-            classified, media_item = classify_direct_url(url)
+            # 1. First probe whether the URL is a direct media file (fast HEAD/Range GET)
+            try:
+                classified, media_item = classify_direct_url(url)
+                if media_item is not None:
+                    return {
+                        "classified_url": classified.model_dump(),
+                        "media_item": media_item.model_dump(),
+                    }
+            except UnsupportedSourceError:
+                pass
+
+            # 2. If not a direct media link, attempt platform video extraction via yt-dlp
+            classified, media_item = extract_video_info(url)
+            return {
+                "classified_url": classified.model_dump(),
+                "media_item": media_item.model_dump() if media_item else None,
+            }
+
+        def extract_video_handler(params: dict[str, Any]) -> dict[str, Any]:
+            url = params.get("url")
+            if not url or not isinstance(url, str):
+                raise TypeError("Parameter 'url' is required and must be a string.")
+
+            from ..extractors.video import extract_video_info
+
+            classified, media_item = extract_video_info(url)
             return {
                 "classified_url": classified.model_dump(),
                 "media_item": media_item.model_dump() if media_item else None,
@@ -122,3 +149,4 @@ class RpcDispatcher:
         self.register("get_system_info", system_info_handler)
         self.register("echo", echo_handler)
         self.register("classify_url", classify_url_handler)
+        self.register("extract_video", extract_video_handler)

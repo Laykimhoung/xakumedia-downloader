@@ -68,8 +68,8 @@ export const App: React.FC = () => {
       setScanResult(res);
       if (!res.classified_url.is_supported) {
         setScanError(
-          `The target URL (${res.classified_url.category}) does not point to a direct media file. ` +
-            `Platform adapters for webpages and galleries are scheduled for Milestones 7 & 8.`
+          `The target URL (${res.classified_url.category}) does not point to a supported direct file or video platform. ` +
+            `Gallery extraction with gallery-dl is scheduled for Milestone 8.`
         );
       }
     } catch (err: unknown) {
@@ -248,7 +248,7 @@ export const App: React.FC = () => {
                       type="text"
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder="Paste a direct image or video URL (e.g. .mp4, .jpg, .png, .webm)..."
+                      placeholder="Paste direct media or video URL (e.g. YouTube, Vimeo, direct .mp4, .jpg)..."
                       className="w-full bg-brand-black/80 border border-brand-dark rounded-lg px-4 py-3 text-sm text-brand-white placeholder-neutral-400 focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red font-mono"
                     />
                   </div>
@@ -301,6 +301,15 @@ export const App: React.FC = () => {
                     </button>
                     <button
                       type="button"
+                      onClick={() =>
+                        setUrlInput("https://www.youtube.com/watch?v=aqz-KE-bpKQ")
+                      }
+                      className="px-2.5 py-1 bg-brand-black/60 hover:bg-brand-dark border border-brand-dark rounded text-neutral-300 hover:text-white transition-colors"
+                    >
+                      Platform Video (YouTube yt-dlp)
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setUrlInput("http://127.0.0.1/private_camera.mp4")}
                       className="px-2.5 py-1 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 rounded text-red-300 hover:text-red-200 transition-colors"
                     >
@@ -311,10 +320,10 @@ export const App: React.FC = () => {
 
                 <div className="flex items-center justify-between text-xs text-neutral-400 border-t border-brand-dark/50 pt-3">
                   <div className="flex items-center space-x-3 text-[11px]">
-                    <span className="text-neutral-400">Supported in M6:</span>
-                    <span className="text-emerald-400 font-medium">Direct JPEG/PNG/WebP/GIF</span>
+                    <span className="text-neutral-400">Supported in M7:</span>
+                    <span className="text-emerald-400 font-medium">Direct Images & Videos</span>
                     <span>·</span>
-                    <span className="text-emerald-400 font-medium">Direct MP4/WebM/MKV</span>
+                    <span className="text-emerald-400 font-medium">Platform Videos (yt-dlp)</span>
                   </div>
                   <span className="text-neutral-400 font-mono text-[11px]">
                     SSRF & Path Traversal Guards Active
@@ -345,10 +354,15 @@ export const App: React.FC = () => {
                           <ImageIcon className="h-3.5 w-3.5" />
                           <span>DIRECT IMAGE</span>
                         </span>
-                      ) : (
+                      ) : scanResult.classified_url.category === "direct_video" ? (
                         <span className="px-2.5 py-1 bg-purple-950/80 border border-purple-600/50 text-purple-300 text-xs font-mono font-semibold rounded-md flex items-center space-x-1.5">
                           <Film className="h-3.5 w-3.5" />
                           <span>DIRECT VIDEO</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-indigo-950/80 border border-indigo-600/50 text-indigo-300 text-xs font-mono font-semibold rounded-md flex items-center space-x-1.5">
+                          <Film className="h-3.5 w-3.5" />
+                          <span>PLATFORM VIDEO (yt-dlp)</span>
                         </span>
                       )}
                       <span className="text-xs font-mono text-neutral-400">
@@ -405,9 +419,41 @@ export const App: React.FC = () => {
                         </div>
                         <div>
                           <span className="text-neutral-400 block">Stream Type:</span>
-                          <span className="text-emerald-400 font-semibold">Direct Source</span>
+                          <span className="text-emerald-400 font-semibold">
+                            {scanResult.classified_url.category === "direct_video" ||
+                            scanResult.classified_url.category === "direct_image"
+                              ? "Direct Source"
+                              : "Extracted Stream"}
+                          </span>
                         </div>
                       </div>
+
+                      {/* Detected Formats Chips */}
+                      {scanResult.media_item.available_formats.length > 1 && (
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-neutral-400 block">
+                            Available Streams ({scanResult.media_item.available_formats.length} formats):
+                          </span>
+                          <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                            {scanResult.media_item.available_formats.slice(0, 8).map((fmt) => (
+                              <span
+                                key={fmt.format_id}
+                                className="px-2 py-0.5 rounded bg-brand-black/80 border border-brand-dark text-[10px] text-neutral-300 flex items-center space-x-1 font-mono"
+                              >
+                                <span>{fmt.resolution || fmt.format_id}</span>
+                                {fmt.container && (
+                                  <span className="text-neutral-400 text-[9px]">({fmt.container})</span>
+                                )}
+                                {fmt.requires_merge && (
+                                  <span className="text-amber-400 text-[9px] px-1 bg-amber-950/60 rounded">
+                                    merge
+                                  </span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="flex items-center justify-between text-[11px] pt-1">
                         <span className="text-neutral-400">

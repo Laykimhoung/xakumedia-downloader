@@ -62,6 +62,27 @@ class UnsupportedSourceError(ExtractionError):
         super().__init__(message, code="UNSUPPORTED_SOURCE", details=details)
 
 
+class PrivateMediaError(ExtractionError):
+    """Raised when target media requires authentication or is private."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="PRIVATE_MEDIA", details=details)
+
+
+class RateLimitError(ExtractionError):
+    """Raised when upstream server or platform throttles or rate limits requests."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="RATE_LIMITED", details=details)
+
+
+class DRMProtectedError(ExtractionError):
+    """Raised when media is protected by Digital Rights Management."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="DRM_PROTECTED", details=details)
+
+
 # Download & File Processing
 class DownloadError(XakuMediaError):
     """Base class for download execution failures."""

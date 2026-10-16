@@ -55,6 +55,8 @@ export interface MediaFormatInfoPayload {
   filesize_bytes?: number | null;
   is_direct_stream: boolean;
   url?: string | null;
+  requires_merge?: boolean;
+  format_note?: string | null;
 }
 
 export interface DiscoveredMediaItem {
@@ -105,6 +107,11 @@ export interface DesktopApi {
    * Scan and classify a URL, discovering available media for direct streams.
    */
   classifyUrl: (url: string) => Promise<ClassifyUrlResult>;
+
+  /**
+   * Extract video stream info and formats using yt-dlp.
+   */
+  extractVideo?: (url: string) => Promise<ClassifyUrlResult>;
 }
 
 declare global {
