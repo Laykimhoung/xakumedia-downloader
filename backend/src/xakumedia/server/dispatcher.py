@@ -109,7 +109,10 @@ class RpcDispatcher:
             if not url or not isinstance(url, str):
                 raise TypeError("Parameter 'url' is required and must be a string.")
 
+            import gallery_dl.extractor as gdl_extractor
+
             from ..exceptions.base import UnsupportedSourceError
+            from ..extractors.gallery import extract_gallery_info
             from ..extractors.video import extract_video_info
             from ..scanners.direct import classify_direct_url
 
@@ -120,15 +123,29 @@ class RpcDispatcher:
                     return {
                         "classified_url": classified.model_dump(),
                         "media_item": media_item.model_dump(),
+                        "media_items": [media_item.model_dump()],
                     }
             except UnsupportedSourceError:
                 pass
 
-            # 2. If not a direct media link, attempt platform video extraction via yt-dlp
+            # 2. Check if a gallery-dl extractor recognizes the URL
+            try:
+                if gdl_extractor.find(url):
+                    classified, media_items = extract_gallery_info(url)
+                    return {
+                        "classified_url": classified.model_dump(),
+                        "media_item": media_items[0].model_dump() if media_items else None,
+                        "media_items": [m.model_dump() for m in media_items],
+                    }
+            except UnsupportedSourceError:
+                pass
+
+            # 3. If not a gallery, attempt platform video extraction via yt-dlp
             classified, media_item = extract_video_info(url)
             return {
                 "classified_url": classified.model_dump(),
                 "media_item": media_item.model_dump() if media_item else None,
+                "media_items": [media_item.model_dump()] if media_item else [],
             }
 
         def extract_video_handler(params: dict[str, Any]) -> dict[str, Any]:
@@ -142,6 +159,21 @@ class RpcDispatcher:
             return {
                 "classified_url": classified.model_dump(),
                 "media_item": media_item.model_dump() if media_item else None,
+                "media_items": [media_item.model_dump()] if media_item else [],
+            }
+
+        def extract_gallery_handler(params: dict[str, Any]) -> dict[str, Any]:
+            url = params.get("url")
+            if not url or not isinstance(url, str):
+                raise TypeError("Parameter 'url' is required and must be a string.")
+
+            from ..extractors.gallery import extract_gallery_info
+
+            classified, media_items = extract_gallery_info(url)
+            return {
+                "classified_url": classified.model_dump(),
+                "media_item": media_items[0].model_dump() if media_items else None,
+                "media_items": [m.model_dump() for m in media_items],
             }
 
         self.register("ping", ping_handler)
@@ -150,3 +182,4 @@ class RpcDispatcher:
         self.register("echo", echo_handler)
         self.register("classify_url", classify_url_handler)
         self.register("extract_video", extract_video_handler)
+        self.register("extract_gallery", extract_gallery_handler)

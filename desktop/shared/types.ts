@@ -38,6 +38,7 @@ export interface ClassifiedUrlInfo {
   raw_url: string;
   normalized_url: string;
   category: "direct_image" | "direct_video" | "social_post" | "gallery" | "channel" | "unknown";
+  platform?: string | null;
   domain?: string | null;
   author_hint?: string | null;
   title_hint?: string | null;
@@ -75,6 +76,7 @@ export interface DiscoveredMediaItem {
 export interface ClassifyUrlResult {
   classified_url: ClassifiedUrlInfo;
   media_item?: DiscoveredMediaItem | null;
+  media_items?: DiscoveredMediaItem[];
 }
 
 export interface DesktopApi {
@@ -112,6 +114,11 @@ export interface DesktopApi {
    * Extract video stream info and formats using yt-dlp.
    */
   extractVideo?: (url: string) => Promise<ClassifyUrlResult>;
+
+  /**
+   * Extract gallery or multi-image collection items using gallery-dl.
+   */
+  extractGallery?: (url: string) => Promise<ClassifyUrlResult>;
 }
 
 declare global {

@@ -29,6 +29,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 5** | Electron-to-Python Communication | **Completed** | Python stdio JSON-RPC 2.0 server (`xakumedia.server`); TypeScript child process manager (`desktop/main/python-bridge.ts`); validated context-isolated preload IPC bridge (`window.api.pingPython`, `getPythonSystemInfo`, `getPythonStatus`); live React UI diagnostics with round-trip ping measurement; automated smoke test verified end-to-end handshake and clean EOF shutdown without zombie processes; 24 unit tests passing. |
 | **Milestone 6** | Direct URL Detection | **Completed** | Direct scanner (`scanners/direct.py`) inspecting MIME headers, content lengths, and filenames; SSRF defense (`utils/security.py`) blocking private IPs, loopbacks, and metadata endpoints; `classify_url` RPC handler exposed via IPC bridge (`window.api.classifyUrl`); interactive React scanning interface with quick presets and live media discovery preview card; 37 unit tests passing; smoke test asserting SSRF defense over IPC. |
 | **Milestone 7** | First Real Video Extraction (yt-dlp) | **Completed** | Integrated `yt-dlp>=2024.8.6` into isolated Python environment; created `extractors/video.py` for metadata and stream format extraction; normalized resolutions, containers, codecs, and stream merging requirements (`requires_merge`); mapped platform errors (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`); registered `extract_video` RPC and desktop IPC bridge; interactive React format stream chips and platform video badge; 41 unit tests passing; desktop smoke test passing. |
+| **Milestone 8** | First Real Gallery Extraction (gallery-dl) | **Completed** | Integrated `gallery-dl>=1.27.0` in isolated venv; created `extractors/gallery.py` using `DataJob` with `file=None` (zero stdio pollution); parsed and normalized multi-item albums into `MediaItem` collections; mapped domain errors (`PrivateMediaError`, `RateLimitError`, `MediaUnavailableError`, `UnsupportedSourceError`); unified `classify_url` and registered explicit `extract_gallery` RPC; typed `extractGallery` IPC method; rendered responsive multi-item album grids with sequential `#index` labels in React; 48 unit tests passing; desktop smoke test passing. |
 
 ---
 
@@ -48,17 +49,17 @@ The system relies on a secure 3-tier desktop architecture:
 - **Backend & Python Tooling:**
   - Dedicated virtual environment isolated at `backend/.venv/` (zero root clutter).
   - `backend/pyproject.toml` adhering to PEP 621.
-  - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`, `yt-dlp>=2024.8.6`.
-  - Developer tooling installed and passing: `pytest` (41 passed in 1.22s), `ruff` (all checks passed).
+  - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`, `yt-dlp>=2024.8.6`, `gallery-dl>=1.27.0`.
+  - Developer tooling installed and passing: `pytest` (48 passed in 1.28s), `ruff` (all checks passed).
 - **Frontend & Desktop Tooling:**
   - Modular `frontend/package.json` with React 18, Vite 5, Tailwind CSS 3, TypeScript 5, Electron 33.
   - Dependencies isolated in `frontend/node_modules/` (zero root clutter).
   - Tooling configs: `frontend/tsconfig.json`, `frontend/vite.config.ts`, `frontend/tailwind.config.js`, `frontend/postcss.config.js`.
-  - Production build verified: `vite build` generated in 1.14s (`frontend/dist/`).
+  - Production build verified: `vite build` generated in 9.81s (`frontend/dist/`).
   - Strict type checking verified: `tsc --noEmit` cleanly passed.
 - **Desktop Shell & Security Architecture:**
   - Electron 33 main process in `desktop/main/index.ts` with strict security defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, webSecurity, custom CSP header enforcement).
-  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`).
+  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`, `extractGallery`).
   - Fast esbuild desktop compilation (`scripts/build-desktop.mjs`) generating `desktop/dist/main.cjs` and `desktop/dist/preload.cjs`.
   - Hot-reloading development orchestrator (`scripts/dev.mjs`).
   - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, and graceful exit.
@@ -89,25 +90,32 @@ The system relies on a secure 3-tier desktop architecture:
   - Unified Dispatcher: `classify_url` automatically falling back from direct file probe to `extract_video_info`; explicit `extract_video` RPC endpoint registered.
   - Desktop Bridge & UI: `DesktopApi.extractVideo` exposed through Electron preload; React UI displays platform video badges and format stream chips (resolutions, container, merge requirements).
   - Automated Verification: 41 unit tests passing in 1.22s; desktop smoke test passing; 0 ruff lint errors.
+- **Gallery & Collection Extraction via gallery-dl (Milestone 8):**
+  - Gallery Extractor: `extractors/gallery.py` executing `gallery-dl` in non-download metadata extraction mode using `DataJob(file=None)` to guarantee zero stdout emission and zero JSON-RPC stdio protocol interference.
+  - Multi-Item Normalization: Extracts post/album metadata, enumerates individual image/video assets, auto-titles items with sequential numbering (`"{title} - 1"`, `"{title} - 2"`), and maps container/resolution dimensions.
+  - Error Mapping: `parse_gallery_dl_error` mapping `NoExtractorError`, `AuthenticationError`, `NotFoundError`, and `HttpError` (429/404/403) to clean domain exceptions.
+  - Unified URL Classification Pipeline: `classify_url` hierarchically routes: 1. Direct media files -> 2. Gallery collections -> 3. Video platforms -> 4. UnsupportedSourceError.
+  - Desktop Bridge & React UI: `DesktopApi.extractGallery` exposed over IPC; interactive multi-item gallery grid rendering item cards, thumbnails, containers, and batch-readiness indicators.
+  - Automated Verification: 48 unit tests passing in 1.28s; desktop smoke test passing; 0 lint errors.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Multi-image and multi-post gallery extraction (`gallery-dl`) is scheduled for Milestone 8.
+- Local database persistence (SQLite) for scanned history and saved collections is scheduled for Milestone 9.
 - Download queuing, streaming disk writes, and FFmpeg stream merging are scheduled for Milestones 10–13.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 8 — First Real Gallery Extraction (gallery-dl)**
+**Next Milestone:** **Milestone 9 — Media Library & Local SQLite Persistence**
 
 ### Acceptance Criteria:
-1. Verify and configure `gallery-dl` in `backend/pyproject.toml` and the isolated virtual environment (`backend/.venv/`).
-2. Build gallery extraction adapter (`backend/src/xakumedia/extractors/gallery.py`) to discover and enumerate multi-item image collections without downloading files.
-3. Synthesize collection metadata into multiple `MediaItem` models with appropriate indexing, author names, and thumbnail links.
-4. Map gallery-specific error responses (rate limits, 404s, private/auth-locked collections).
-5. Expose gallery extraction in RPC dispatcher (`classify_url` fallback pipeline and explicit `extract_gallery` method) and desktop IPC.
-6. Display multi-item gallery grids/cards in the React UI.
-7. Unit test gallery extraction with mocked outputs and verify with `npm run test` and `npm run lint`.
+1. Establish SQLite schema with migrations (`media_items`, `scan_history`, `download_tasks`, `app_preferences`).
+2. Build local SQLite repository layer (`backend/src/xakumedia/db/`) supporting thread-safe connections, WAL mode, and parameterized queries.
+3. Maintain relational integrity: foreign keys, indexed lookups on `source_url`, `created_at`, `media_type`.
+4. Expose SQLite operations via JSON-RPC (`get_history`, `save_scan_result`, `get_saved_media`, `delete_history_item`).
+5. Connect desktop IPC and preload bridge (`window.api.getHistory`, `window.api.saveMediaItem`).
+6. Wire React Media Library and Scan History tabs to display live stored data from SQLite.
+7. Unit test schema migrations, concurrent access, and CRUD operations; verify with `npm run test` and `npm run lint`.

@@ -38,6 +38,9 @@ const api: DesktopApi = {
   extractVideo: async (url: string): Promise<ClassifyUrlResult> => {
     return ipcRenderer.invoke("python:extractVideo", url);
   },
+  extractGallery: async (url: string): Promise<ClassifyUrlResult> => {
+    return ipcRenderer.invoke("python:extractGallery", url);
+  },
 };
 
 contextBridge.exposeInMainWorld("api", api);

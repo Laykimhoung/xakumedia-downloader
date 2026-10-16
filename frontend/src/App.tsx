@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Loader2,
   Sparkles,
+  Layers,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
@@ -68,8 +69,7 @@ export const App: React.FC = () => {
       setScanResult(res);
       if (!res.classified_url.is_supported) {
         setScanError(
-          `The target URL (${res.classified_url.category}) does not point to a supported direct file or video platform. ` +
-            `Gallery extraction with gallery-dl is scheduled for Milestone 8.`
+          `The target URL (${res.classified_url.category}) could not be resolved by direct detection, yt-dlp, or gallery-dl.`
         );
       }
     } catch (err: unknown) {
@@ -248,7 +248,7 @@ export const App: React.FC = () => {
                       type="text"
                       value={urlInput}
                       onChange={(e) => setUrlInput(e.target.value)}
-                      placeholder="Paste direct media or video URL (e.g. YouTube, Vimeo, direct .mp4, .jpg)..."
+                      placeholder="Paste direct media, video, or gallery URL (e.g. YouTube, Vimeo, Imgur, ArtStation, .mp4, .jpg)..."
                       className="w-full bg-brand-black/80 border border-brand-dark rounded-lg px-4 py-3 text-sm text-brand-white placeholder-neutral-400 focus:outline-none focus:border-brand-red focus:ring-1 focus:ring-brand-red font-mono"
                     />
                   </div>
@@ -310,6 +310,15 @@ export const App: React.FC = () => {
                     </button>
                     <button
                       type="button"
+                      onClick={() =>
+                        setUrlInput("https://www.artstation.com/artwork/sample")
+                      }
+                      className="px-2.5 py-1 bg-brand-black/60 hover:bg-brand-dark border border-brand-dark rounded text-neutral-300 hover:text-white transition-colors"
+                    >
+                      Gallery Album (ArtStation gallery-dl)
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setUrlInput("http://127.0.0.1/private_camera.mp4")}
                       className="px-2.5 py-1 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 rounded text-red-300 hover:text-red-200 transition-colors"
                     >
@@ -320,10 +329,12 @@ export const App: React.FC = () => {
 
                 <div className="flex items-center justify-between text-xs text-neutral-400 border-t border-brand-dark/50 pt-3">
                   <div className="flex items-center space-x-3 text-[11px]">
-                    <span className="text-neutral-400">Supported in M7:</span>
-                    <span className="text-emerald-400 font-medium">Direct Images & Videos</span>
+                    <span className="text-neutral-400">Supported in M8:</span>
+                    <span className="text-emerald-400 font-medium">Direct Files</span>
                     <span>·</span>
-                    <span className="text-emerald-400 font-medium">Platform Videos (yt-dlp)</span>
+                    <span className="text-emerald-400 font-medium">Video Platforms (yt-dlp)</span>
+                    <span>·</span>
+                    <span className="text-emerald-400 font-medium">Image Galleries (gallery-dl)</span>
                   </div>
                   <span className="text-neutral-400 font-mono text-[11px]">
                     SSRF & Path Traversal Guards Active
@@ -344,10 +355,95 @@ export const App: React.FC = () => {
                 </div>
               )}
 
-              {/* Discovered Media Card */}
-              {scanResult?.media_item && (
+              {/* Discovered Multi-Item Gallery Card */}
+              {scanResult && scanResult.media_items && scanResult.media_items.length > 1 && (
                 <div className="bg-brand-dark/30 border border-brand-dark rounded-xl p-5 shadow-xl space-y-4">
                   <div className="flex items-center justify-between border-b border-brand-dark/60 pb-3">
+                    <div className="flex items-center space-x-2.5">
+                      <span className="px-2.5 py-1 bg-sky-950/80 border border-sky-600/50 text-sky-300 text-xs font-mono font-semibold rounded-md flex items-center space-x-1.5">
+                        <Layers className="h-3.5 w-3.5" />
+                        <span>GALLERY ALBUM ({scanResult.media_items.length} ITEMS)</span>
+                      </span>
+                      <span className="text-xs font-mono text-neutral-400">
+                        {scanResult.classified_url.platform || scanResult.classified_url.domain}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-1 text-xs text-emerald-400 font-mono">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>Collection Discovered</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-brand-white font-sans truncate">
+                      {scanResult.classified_url.title_hint ||
+                        scanResult.media_items[0]?.title ||
+                        "Gallery Collection"}
+                    </h3>
+                    <p className="text-xs font-mono text-neutral-400">
+                      Author:{" "}
+                      <span className="text-neutral-200">
+                        {scanResult.classified_url.author_hint || "gallery"}
+                      </span>{" "}
+                      · Source: {scanResult.classified_url.domain}
+                    </p>
+                  </div>
+
+                  {/* Grid of gallery items */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto pr-1">
+                    {scanResult.media_items.map((item, idx) => (
+                      <div
+                        key={item.id || idx}
+                        className="bg-brand-black/70 border border-brand-dark rounded-lg p-2 flex flex-col space-y-2 hover:border-brand-red/50 transition-colors"
+                      >
+                        <div className="w-full h-24 rounded bg-brand-black/90 border border-brand-dark/60 overflow-hidden flex items-center justify-center relative">
+                          {item.thumbnail_url ? (
+                            <img
+                              src={item.thumbnail_url}
+                              alt={item.title || `Item ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : item.media_type === "video" ? (
+                            <Film className="h-6 w-6 text-neutral-400" />
+                          ) : (
+                            <ImageIcon className="h-6 w-6 text-neutral-400" />
+                          )}
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
+                            #{idx + 1}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono space-y-0.5">
+                          <p className="truncate text-brand-white font-medium">
+                            {item.title || `Item ${idx + 1}`}
+                          </p>
+                          <div className="flex items-center justify-between text-[10px] text-neutral-400">
+                            <span className="uppercase">
+                              {item.available_formats[0]?.container || "IMG"}
+                            </span>
+                            <span>{formatBytes(item.filesize_bytes)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-brand-dark/50 pt-2 text-[11px] font-mono">
+                    <span className="text-neutral-400">
+                      Total {scanResult.media_items.length} items enumerated without downloading
+                    </span>
+                    <span className="text-emerald-400 font-medium">
+                      Ready for Batch Queue (Milestone 13)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Discovered Single Media Card */}
+              {scanResult?.media_item &&
+                (!scanResult.media_items || scanResult.media_items.length <= 1) && (
+                  <div className="bg-brand-dark/30 border border-brand-dark rounded-xl p-5 shadow-xl space-y-4">
+                    <div className="flex items-center justify-between border-b border-brand-dark/60 pb-3">
                     <div className="flex items-center space-x-2.5">
                       {scanResult.media_item.media_type === "image" ? (
                         <span className="px-2.5 py-1 bg-emerald-950/80 border border-emerald-600/50 text-emerald-300 text-xs font-mono font-semibold rounded-md flex items-center space-x-1.5">
