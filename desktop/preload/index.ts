@@ -3,11 +3,15 @@ import type {
   CancelDownloadResult,
   ClassifyUrlResult,
   ClearScanHistoryResult,
+  ConvertFormatResult,
   DesktopApi,
   DiscoveredMediaItem,
   DownloadTaskRecord,
+  FFmpegInfoResult,
   GetDownloadTasksResult,
+  InspectMediaResult,
   MediaFormatInfoPayload,
+  MergeStreamsResult,
   ProgressUpdatePayload,
   PythonBridgeStatus,
   PythonPingResult,
@@ -117,6 +121,38 @@ const api: DesktopApi = {
   },
   openPath: async (targetPath: string): Promise<void> => {
     return ipcRenderer.invoke("app:openPath", targetPath);
+  },
+  getFFmpegInfo: async (): Promise<FFmpegInfoResult> => {
+    return ipcRenderer.invoke("python:getFFmpegInfo");
+  },
+  inspectMedia: async (filePath: string): Promise<InspectMediaResult> => {
+    return ipcRenderer.invoke("python:inspectMedia", filePath);
+  },
+  mergeStreams: async (
+    videoPath: string,
+    audioPath: string,
+    outputPath: string,
+    outputContainer?: string
+  ): Promise<MergeStreamsResult> => {
+    return ipcRenderer.invoke(
+      "python:mergeStreams",
+      videoPath,
+      audioPath,
+      outputPath,
+      outputContainer
+    );
+  },
+  convertFormat: async (
+    inputPath: string,
+    outputPath: string,
+    targetFormat?: string
+  ): Promise<ConvertFormatResult> => {
+    return ipcRenderer.invoke(
+      "python:convertFormat",
+      inputPath,
+      outputPath,
+      targetFormat
+    );
   },
 };
 

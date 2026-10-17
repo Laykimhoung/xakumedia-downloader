@@ -30,6 +30,10 @@ class AppConfig(BaseModel):
     default_video_container: VideoContainer = VideoContainer.MP4
     default_image_format: ImageFormat = ImageFormat.ORIGINAL
 
+    # Media Processing & External Tools
+    ffmpeg_binary: Path | None = None
+    ffprobe_binary: Path | None = None
+
     # Logging & Interface
     theme: str = Field(default="dark", pattern="^(dark|light|system)$")
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")

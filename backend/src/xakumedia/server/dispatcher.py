@@ -292,6 +292,62 @@ class RpcDispatcher:
                 "count": len(tasks),
             }
 
+        # FFmpeg & Media Processing RPC Handlers
+        def get_ffmpeg_info_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..processor.ffmpeg import get_ffmpeg_info
+
+            return get_ffmpeg_info()
+
+        def inspect_media_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from pathlib import Path
+
+            from ..processor.ffmpeg import inspect_media
+
+            file_path_str = params.get("file_path")
+            if not file_path_str or not isinstance(file_path_str, str):
+                raise TypeError("Parameter 'file_path' is required and must be a string.")
+
+            return inspect_media(Path(file_path_str))
+
+        def merge_streams_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from pathlib import Path
+
+            from ..processor.ffmpeg import merge_video_audio
+
+            video_path_str = params.get("video_path")
+            audio_path_str = params.get("audio_path")
+            output_path_str = params.get("output_path")
+
+            if not video_path_str or not audio_path_str or not output_path_str:
+                raise TypeError(
+                    "Parameters 'video_path', 'audio_path', and 'output_path' are required."
+                )
+
+            output = merge_video_audio(
+                video_path=Path(video_path_str),
+                audio_path=Path(audio_path_str),
+                output_path=Path(output_path_str),
+                output_container=params.get("output_container"),
+            )
+            return {"output_path": str(output), "success": True}
+
+        def convert_format_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from pathlib import Path
+
+            from ..processor.ffmpeg import convert_container
+
+            input_path_str = params.get("input_path")
+            output_path_str = params.get("output_path")
+
+            if not input_path_str or not output_path_str:
+                raise TypeError("Parameters 'input_path' and 'output_path' are required.")
+
+            output = convert_container(
+                input_path=Path(input_path_str),
+                output_path=Path(output_path_str),
+            )
+            return {"output_path": str(output), "success": True}
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -309,3 +365,8 @@ class RpcDispatcher:
         self.register("start_download", start_download_handler)
         self.register("cancel_download", cancel_download_handler)
         self.register("get_download_tasks", get_download_tasks_handler)
+        self.register("get_ffmpeg_info", get_ffmpeg_info_handler)
+        self.register("inspect_media", inspect_media_handler)
+        self.register("merge_streams", merge_streams_handler)
+        self.register("convert_format", convert_format_handler)
+

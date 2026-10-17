@@ -34,6 +34,44 @@ export interface PythonBridgeStatus {
   info?: PythonSystemInfoResult;
 }
 
+export interface FFmpegInfoResult {
+  installed: boolean;
+  version?: string | null;
+  ffmpeg_path?: string | null;
+  ffprobe_path?: string | null;
+}
+
+export interface MediaStreamDetail {
+  codec?: string | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+  channels?: number | null;
+  sample_rate?: number | null;
+  bitrate?: number | null;
+}
+
+export interface InspectMediaResult {
+  file_path: string;
+  file_name: string;
+  format_name?: string | null;
+  duration_seconds?: number | null;
+  bitrate?: number | null;
+  size_bytes?: number | null;
+  video_stream?: MediaStreamDetail | null;
+  audio_stream?: MediaStreamDetail | null;
+}
+
+export interface MergeStreamsResult {
+  output_path: string;
+  success: boolean;
+}
+
+export interface ConvertFormatResult {
+  output_path: string;
+  success: boolean;
+}
+
 export interface ClassifiedUrlInfo {
   raw_url: string;
   normalized_url: string;
@@ -264,6 +302,35 @@ export interface DesktopApi {
    * Open downloaded file or folder in Windows File Explorer.
    */
   openPath?: (targetPath: string) => Promise<void>;
+
+  /**
+   * Check if FFmpeg and FFprobe binaries are installed and accessible.
+   */
+  getFFmpegInfo: () => Promise<FFmpegInfoResult>;
+
+  /**
+   * Probe and inspect technical metadata of a local audio/video file using ffprobe.
+   */
+  inspectMedia?: (filePath: string) => Promise<InspectMediaResult>;
+
+  /**
+   * Multiplex separate video and audio files into a single merged container.
+   */
+  mergeStreams?: (
+    videoPath: string,
+    audioPath: string,
+    outputPath: string,
+    outputContainer?: string
+  ) => Promise<MergeStreamsResult>;
+
+  /**
+   * Convert container or re-package media format using stream copying or transcoding.
+   */
+  convertFormat?: (
+    inputPath: string,
+    outputPath: string,
+    targetFormat?: string
+  ) => Promise<ConvertFormatResult>;
 }
 
 declare global {

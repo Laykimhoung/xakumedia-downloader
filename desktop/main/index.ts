@@ -145,6 +145,49 @@ function registerIpcHandlers(): void {
     return pythonBridge.sendRequest("get_download_tasks", { status, limit });
   });
 
+  // Media Processor & FFmpeg IPC Handlers
+  ipcMain.handle("python:getFFmpegInfo", async () => {
+    return pythonBridge.sendRequest("get_ffmpeg_info");
+  });
+
+  ipcMain.handle("python:inspectMedia", async (_event, filePath: string) => {
+    return pythonBridge.sendRequest("inspect_media", { file_path: filePath });
+  });
+
+  ipcMain.handle(
+    "python:mergeStreams",
+    async (
+      _event,
+      videoPath: string,
+      audioPath: string,
+      outputPath: string,
+      outputContainer?: string
+    ) => {
+      return pythonBridge.sendRequest("merge_streams", {
+        video_path: videoPath,
+        audio_path: audioPath,
+        output_path: outputPath,
+        output_container: outputContainer,
+      });
+    }
+  );
+
+  ipcMain.handle(
+    "python:convertFormat",
+    async (
+      _event,
+      inputPath: string,
+      outputPath: string,
+      targetFormat?: string
+    ) => {
+      return pythonBridge.sendRequest("convert_format", {
+        input_path: inputPath,
+        output_path: outputPath,
+        target_format: targetFormat,
+      });
+    }
+  );
+
   ipcMain.handle("app:openPath", async (_event, targetPath: string) => {
     if (!targetPath) return;
     try {
@@ -241,6 +284,16 @@ function createWindow(): void {
         }>("get_download_tasks", { limit: 5 });
         console.log(
           `[smoke-test] Downloader tasks query verified over IPC: count=${tasksResponse.count}`
+        );
+
+        // Verify FFmpeg detection over IPC
+        const ffmpegResponse = await pythonBridge.sendRequest<{
+          installed: boolean;
+          version?: string | null;
+          ffmpeg_path?: string | null;
+        }>("get_ffmpeg_info");
+        console.log(
+          `[smoke-test] FFmpeg detection verified over IPC: installed=${ffmpegResponse.installed}, version=${ffmpegResponse.version}`
         );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);

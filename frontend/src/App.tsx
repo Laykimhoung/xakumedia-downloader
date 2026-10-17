@@ -28,6 +28,7 @@ import type {
   ClassifyUrlResult,
   DiscoveredMediaItem,
   DownloadTaskRecord,
+  FFmpegInfoResult,
   MediaFormatInfoPayload,
   ProgressUpdatePayload,
   PythonBridgeStatus,
@@ -43,10 +44,12 @@ export const App: React.FC = () => {
   const [pythonStatus, setPythonStatus] = useState<PythonBridgeStatus | null>(null);
   const [pythonPing, setPythonPing] = useState<PythonPingResult | null>(null);
   const [pythonLatency, setPythonLatency] = useState<number | null>(null);
+  const [ffmpegInfo, setFfmpegInfo] = useState<FFmpegInfoResult | null>(null);
   const [isPinging, setIsPinging] = useState<boolean>(false);
   const [urlInput, setUrlInput] = useState<string>("");
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanResult, setScanResult] = useState<ClassifyUrlResult | null>(null);
+  const [selectedFormat, setSelectedFormat] = useState<MediaFormatInfoPayload | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
   // SQLite Persistence State (Media Library & Scan History)
@@ -200,6 +203,11 @@ export const App: React.FC = () => {
     try {
       const res = await window.api.classifyUrl(urlToScan.trim());
       setScanResult(res);
+      if (res.media_item?.available_formats && res.media_item.available_formats.length > 0) {
+        setSelectedFormat(res.media_item.available_formats[0]);
+      } else {
+        setSelectedFormat(null);
+      }
       if (!res.classified_url.is_supported) {
         setScanError(
           `The target URL (${res.classified_url.category}) could not be resolved by direct detection, yt-dlp, or gallery-dl.`
@@ -312,6 +320,15 @@ export const App: React.FC = () => {
           if (window.api.getPythonStatus) {
             const pyStatus = await window.api.getPythonStatus();
             setPythonStatus(pyStatus);
+          }
+
+          if (window.api.getFFmpegInfo) {
+            try {
+              const ffInfo = await window.api.getFFmpegInfo();
+              setFfmpegInfo(ffInfo);
+            } catch (err) {
+              console.warn("Could not load initial FFmpeg info:", err);
+            }
           }
 
           // Initialize bookmarks
@@ -503,10 +520,10 @@ export const App: React.FC = () => {
         <header className="h-14 border-b border-brand-dark flex items-center justify-between px-8 bg-brand-black/30">
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider text-neutral-400 font-mono">
-              Milestone 10 / Basic Download Manager & Streaming
+              Milestone 11 / FFmpeg Stream Merging & Format Conversion
             </span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             {activeTaskCount > 0 && (
               <button
                 type="button"
@@ -521,12 +538,23 @@ export const App: React.FC = () => {
             )}
             <div className="flex items-center space-x-1.5 text-xs text-neutral-300 bg-brand-dark/60 px-3 py-1 rounded-full border border-brand-dark">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-              <span>Context Isolation Active</span>
+              <span>Context Isolation</span>
             </div>
             {pythonStatus?.connected && (
               <div className="flex items-center space-x-1.5 text-xs text-emerald-300 bg-emerald-950/40 px-3 py-1 rounded-full border border-emerald-800/50">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Python Stdio IPC Online</span>
+                <span>Python IPC</span>
+              </div>
+            )}
+            {ffmpegInfo?.installed ? (
+              <div className="flex items-center space-x-1.5 text-xs text-purple-300 bg-purple-950/40 px-3 py-1 rounded-full border border-purple-800/50">
+                <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+                <span>FFmpeg {ffmpegInfo.version?.split("-")[0] || "Active"}</span>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1.5 text-xs text-amber-300 bg-amber-950/40 px-3 py-1 rounded-full border border-amber-800/50">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                <span>FFmpeg Not Detected</span>
               </div>
             )}
           </div>
@@ -885,26 +913,42 @@ export const App: React.FC = () => {
                       {/* Detected Formats Chips */}
                       {scanResult.media_item.available_formats.length > 1 && (
                         <div className="space-y-1">
-                          <span className="text-[10px] text-neutral-400 block">
-                            Available Streams ({scanResult.media_item.available_formats.length} formats):
-                          </span>
-                          <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
-                            {scanResult.media_item.available_formats.slice(0, 8).map((fmt) => (
-                              <span
-                                key={fmt.format_id}
-                                className="px-2 py-0.5 rounded bg-brand-black/80 border border-brand-dark text-[10px] text-neutral-300 flex items-center space-x-1 font-mono"
-                              >
-                                <span>{fmt.resolution || fmt.format_id}</span>
-                                {fmt.container && (
-                                  <span className="text-neutral-400 text-[9px]">({fmt.container})</span>
-                                )}
-                                {fmt.requires_merge && (
-                                  <span className="text-amber-400 text-[9px] px-1 bg-amber-950/60 rounded">
-                                    merge
-                                  </span>
-                                )}
+                          <div className="flex items-center justify-between text-[10px] text-neutral-400">
+                            <span>Available Streams ({scanResult.media_item.available_formats.length} formats):</span>
+                            {selectedFormat && (
+                              <span className="text-purple-300 font-semibold">
+                                Selected: {selectedFormat.resolution || selectedFormat.format_id} ({selectedFormat.container})
+                                {selectedFormat.requires_merge && " [FFmpeg Merge]"}
                               </span>
-                            ))}
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                            {scanResult.media_item.available_formats.slice(0, 10).map((fmt) => {
+                              const isSelected = selectedFormat?.format_id === fmt.format_id;
+                              return (
+                                <button
+                                  type="button"
+                                  key={fmt.format_id}
+                                  onClick={() => setSelectedFormat(fmt)}
+                                  className={`px-2 py-0.5 rounded text-[10px] flex items-center space-x-1 font-mono transition-all ${
+                                    isSelected
+                                      ? "bg-purple-900/60 border border-purple-500 text-white shadow-sm shadow-purple-900/40"
+                                      : "bg-brand-black/80 hover:bg-neutral-800 border border-brand-dark text-neutral-300"
+                                  }`}
+                                >
+                                  <span className="font-medium">{fmt.resolution || fmt.format_id}</span>
+                                  {fmt.container && (
+                                    <span className="text-neutral-400 text-[9px]">({fmt.container})</span>
+                                  )}
+                                  {fmt.requires_merge && (
+                                    <span className="text-purple-300 text-[9px] px-1 bg-purple-950/80 rounded border border-purple-800/60 flex items-center space-x-0.5">
+                                      <Sparkles className="h-2 w-2 text-purple-400" />
+                                      <span>merge</span>
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -915,16 +959,20 @@ export const App: React.FC = () => {
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleStartDownload(scanResult.media_item!)}
+                          onClick={() => handleStartDownload(scanResult.media_item!, selectedFormat)}
                           disabled={downloadingIds.has(scanResult.media_item.id)}
-                          className="px-4 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-2 transition-all shadow-md shadow-brand-red/30"
+                          className="px-4 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-2 transition-all shadow-md shadow-brand-red/30 cursor-pointer"
                         >
                           {downloadingIds.has(scanResult.media_item.id) ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Download className="h-3.5 w-3.5" />
                           )}
-                          <span>Download Now</span>
+                          <span>
+                            {selectedFormat?.requires_merge
+                              ? "Download & Merge (FFmpeg)"
+                              : "Download Now"}
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -948,7 +996,7 @@ export const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 text-xs font-mono">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs font-mono">
                   <div className="bg-brand-black/60 p-3 rounded-lg border border-brand-dark">
                     <span className="text-neutral-400 block mb-1">Desktop Shell:</span>
                     <span className="text-emerald-400">Electron 33 (Isolated)</span>
@@ -967,6 +1015,14 @@ export const App: React.FC = () => {
                       {pythonStatus?.connected
                         ? `Connected (${pythonLatency ?? 0}ms)`
                         : "Disconnected"}
+                    </span>
+                  </div>
+                  <div className="bg-brand-black/60 p-3 rounded-lg border border-brand-dark">
+                    <span className="text-neutral-400 block mb-1">FFmpeg Processor:</span>
+                    <span className={ffmpegInfo?.installed ? "text-purple-400" : "text-amber-400"}>
+                      {ffmpegInfo?.installed
+                        ? `Ready (${ffmpegInfo.version?.split("-")[0] || "Active"})`
+                        : "Not Installed"}
                     </span>
                   </div>
                 </div>
@@ -1005,6 +1061,12 @@ export const App: React.FC = () => {
                       <div className="col-span-2 truncate">
                         <span className="text-neutral-400">Data Dir: </span>
                         <span className="text-neutral-300">{pythonStatus.info.data_dir}</span>
+                      </div>
+                      <div className="col-span-2 truncate">
+                        <span className="text-neutral-400">FFmpeg Binary: </span>
+                        <span className="text-purple-300 font-mono text-[10px]">
+                          {ffmpegInfo?.ffmpeg_path || "Not detected in PATH"}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1531,7 +1593,13 @@ export const App: React.FC = () => {
 
                             {/* Status Badge & Actions */}
                             <div className="flex items-center space-x-2 shrink-0">
-                              {isRunning && (
+                              {task.status === "merging" && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-purple-950/70 border border-purple-700/80 text-purple-300 flex items-center space-x-1.5 animate-pulse shadow-sm shadow-purple-900/40">
+                                  <Sparkles className="h-3 w-3 animate-spin text-purple-400" />
+                                  <span>FFmpeg Merging</span>
+                                </span>
+                              )}
+                              {(task.status === "downloading" || task.status === "queued") && (
                                 <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-amber-950/60 border border-amber-800/60 text-amber-300 flex items-center space-x-1.5">
                                   <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
                                   <span>{task.status}</span>
@@ -1673,9 +1741,17 @@ export const App: React.FC = () => {
                               </div>
                             </div>
 
+                            {/* Merging detail status */}
+                            {task.status === "merging" && (
+                              <div className="text-[11px] font-mono text-purple-300 bg-purple-950/40 p-2.5 rounded-lg border border-purple-800/50 flex items-center space-x-2">
+                                <Sparkles className="h-3.5 w-3.5 text-purple-400 shrink-0 animate-spin" />
+                                <span>{task.error_message || "Multiplexing separate video & audio streams using FFmpeg..."}</span>
+                              </div>
+                            )}
+
                             {/* Error message detail if failed */}
-                            {task.error_message && (
-                              <div className="text-[11px] font-mono text-red-300 bg-red-950/40 p-2 rounded border border-red-800/40">
+                            {task.status === "failed" && task.error_message && (
+                              <div className="text-[11px] font-mono text-red-300 bg-red-950/40 p-2.5 rounded-lg border border-red-800/40">
                                 Error: {task.error_message}
                               </div>
                             )}

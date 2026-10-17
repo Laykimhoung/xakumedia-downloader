@@ -152,3 +152,38 @@ class InvalidDestinationError(SecurityError):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message, code="INVALID_DESTINATION_PATH", details=details)
+
+
+# Media Processing & FFmpeg
+class MediaProcessingError(XakuMediaError):
+    """Base class for media processing, multiplexing, and format conversion errors."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "MEDIA_PROCESSING_ERROR",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, code=code, details=details)
+
+
+class FFmpegNotFoundError(MediaProcessingError):
+    """Raised when ffmpeg or ffprobe executable is not found on PATH or configured location."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="FFMPEG_NOT_FOUND", details=details)
+
+
+class StreamMergeError(MediaProcessingError):
+    """Raised when multiplexing separate video and audio streams fails."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="STREAM_MERGE_ERROR", details=details)
+
+
+class FormatConversionError(MediaProcessingError):
+    """Raised when format transcoding or remuxing fails."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="FORMAT_CONVERSION_ERROR", details=details)
+
