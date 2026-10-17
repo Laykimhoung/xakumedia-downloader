@@ -1,14 +1,20 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  CancelDownloadResult,
   ClassifyUrlResult,
   ClearScanHistoryResult,
   DesktopApi,
   DiscoveredMediaItem,
+  DownloadTaskRecord,
+  GetDownloadTasksResult,
+  MediaFormatInfoPayload,
+  ProgressUpdatePayload,
   PythonBridgeStatus,
   PythonPingResult,
   PythonSystemInfoResult,
   SavedMediaResult,
   ScanHistoryResult,
+  StartDownloadResult,
   SystemInfo,
   ToggleSaveResult,
 } from "../shared/types";
@@ -63,6 +69,54 @@ const api: DesktopApi = {
   },
   deleteMediaItem: async (mediaId: string): Promise<{ id: string; deleted: boolean }> => {
     return ipcRenderer.invoke("python:deleteMediaItem", mediaId);
+  },
+  startDownload: async (
+    mediaItem: DiscoveredMediaItem,
+    selectedFormat?: MediaFormatInfoPayload | null,
+    destinationPath?: string
+  ): Promise<StartDownloadResult> => {
+    return ipcRenderer.invoke(
+      "python:startDownload",
+      mediaItem,
+      selectedFormat,
+      destinationPath
+    );
+  },
+  cancelDownload: async (taskId: string): Promise<CancelDownloadResult> => {
+    return ipcRenderer.invoke("python:cancelDownload", taskId);
+  },
+  getDownloadTasks: async (
+    status?: string,
+    limit?: number
+  ): Promise<GetDownloadTasksResult> => {
+    return ipcRenderer.invoke("python:getDownloadTasks", status, limit);
+  },
+  onDownloadProgress: (
+    callback: (progress: ProgressUpdatePayload) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: ProgressUpdatePayload
+    ) => callback(data);
+    ipcRenderer.on("download:progress", handler);
+    return () => {
+      ipcRenderer.removeListener("download:progress", handler);
+    };
+  },
+  onDownloadCompleted: (
+    callback: (task: DownloadTaskRecord) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: DownloadTaskRecord
+    ) => callback(data);
+    ipcRenderer.on("download:completed", handler);
+    return () => {
+      ipcRenderer.removeListener("download:completed", handler);
+    };
+  },
+  openPath: async (targetPath: string): Promise<void> => {
+    return ipcRenderer.invoke("app:openPath", targetPath);
   },
 };
 

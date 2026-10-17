@@ -248,6 +248,50 @@ class RpcDispatcher:
             deleted = default_repository.delete_media_item(media_id)
             return {"id": media_id, "deleted": deleted}
 
+        def start_download_handler(params: dict[str, Any]) -> dict[str, Any]:
+            media_data = params.get("media_item")
+            if not media_data or not isinstance(media_data, dict):
+                raise TypeError("Parameter 'media_item' is required and must be an object.")
+
+            from ..downloader import default_download_manager
+            from ..models.media import MediaFormatInfo, MediaItem
+
+            item = MediaItem.model_validate(media_data)
+            format_data = params.get("selected_format")
+            fmt = MediaFormatInfo.model_validate(format_data) if format_data else None
+            dest = params.get("destination_path")
+
+            task = default_download_manager.start_download(
+                media_item=item,
+                selected_format=fmt,
+                destination_path=dest,
+            )
+            return {"task": task.model_dump(mode="json")}
+
+        def cancel_download_handler(params: dict[str, Any]) -> dict[str, Any]:
+            task_id = params.get("task_id")
+            if not task_id or not isinstance(task_id, str):
+                raise TypeError("Parameter 'task_id' is required and must be a string.")
+
+            from ..downloader import default_download_manager
+
+            cancelled = default_download_manager.cancel_download(task_id)
+            return {"task_id": task_id, "cancelled": cancelled}
+
+        def get_download_tasks_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+            from ..models.queue import TaskStatus
+
+            status_str = params.get("status")
+            status = TaskStatus(status_str) if status_str else None
+            limit = int(params.get("limit", 50))
+
+            tasks = default_download_manager.get_tasks(status=status, limit=limit)
+            return {
+                "tasks": [t.model_dump(mode="json") for t in tasks],
+                "count": len(tasks),
+            }
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -262,3 +306,6 @@ class RpcDispatcher:
         self.register("get_saved_media", get_saved_media_handler)
         self.register("toggle_save_media", toggle_save_media_handler)
         self.register("delete_media_item", delete_media_item_handler)
+        self.register("start_download", start_download_handler)
+        self.register("cancel_download", cancel_download_handler)
+        self.register("get_download_tasks", get_download_tasks_handler)

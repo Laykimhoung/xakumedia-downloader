@@ -35,6 +35,7 @@ export class PythonBridge {
   private isConnected = false;
   private lastError?: string;
   private cachedSystemInfo?: PythonSystemInfoResult;
+  private notificationListeners: ((method: string, params: Record<string, unknown>) => void)[] = [];
 
   constructor(projectRoot?: string) {
     // Default project root is 2 levels up from desktop/main or dist/
@@ -210,8 +211,29 @@ export class PythonBridge {
       }
     } else if (message.method) {
       // Async one-way notification from Python engine
-      console.log(`[python-bridge] Notification: ${message.method}`, message.params);
+      for (const listener of this.notificationListeners) {
+        try {
+          listener(message.method, (message.params as Record<string, unknown>) || {});
+        } catch (err) {
+          console.error(
+            `[python-bridge] Notification listener error for ${message.method}:`,
+            err
+          );
+        }
+      }
     }
+  }
+
+  /**
+   * Subscribe to one-way JSON-RPC notifications from the Python engine.
+   */
+  public onNotification(
+    listener: (method: string, params: Record<string, unknown>) => void
+  ): () => void {
+    this.notificationListeners.push(listener);
+    return () => {
+      this.notificationListeners = this.notificationListeners.filter((l) => l !== listener);
+    };
   }
 
   /**

@@ -1,11 +1,23 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, session, shell } from "electron";
+import fs from "fs";
 import path from "path";
-import type { SystemInfo } from "../shared/types";
+import type {
+  DiscoveredMediaItem,
+  MediaFormatInfoPayload,
+  SystemInfo,
+} from "../shared/types";
 import { PythonBridge } from "./python-bridge";
 
 let mainWindow: BrowserWindow | null = null;
 const pythonBridge = new PythonBridge();
 let isQuitting = false;
+
+// Forward real-time Python notifications to the renderer window
+pythonBridge.onNotification((method, params) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(method, params);
+  }
+});
 
 // Enforce single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -107,6 +119,49 @@ function registerIpcHandlers(): void {
   ipcMain.handle("python:deleteMediaItem", async (_event, mediaId: string) => {
     return pythonBridge.sendRequest("delete_media_item", { media_id: mediaId });
   });
+
+  // Download Manager IPC Handlers
+  ipcMain.handle(
+    "python:startDownload",
+    async (
+      _event,
+      mediaItem: DiscoveredMediaItem,
+      selectedFormat?: MediaFormatInfoPayload | null,
+      destinationPath?: string
+    ) => {
+      return pythonBridge.sendRequest("start_download", {
+        media_item: mediaItem,
+        selected_format: selectedFormat,
+        destination_path: destinationPath,
+      });
+    }
+  );
+
+  ipcMain.handle("python:cancelDownload", async (_event, taskId: string) => {
+    return pythonBridge.sendRequest("cancel_download", { task_id: taskId });
+  });
+
+  ipcMain.handle("python:getDownloadTasks", async (_event, status?: string, limit?: number) => {
+    return pythonBridge.sendRequest("get_download_tasks", { status, limit });
+  });
+
+  ipcMain.handle("app:openPath", async (_event, targetPath: string) => {
+    if (!targetPath) return;
+    try {
+      if (fs.existsSync(targetPath)) {
+        const stat = fs.statSync(targetPath);
+        if (stat.isDirectory()) {
+          await shell.openPath(targetPath);
+        } else {
+          shell.showItemInFolder(targetPath);
+        }
+      } else {
+        await shell.openPath(path.dirname(targetPath));
+      }
+    } catch (err) {
+      console.warn(`[desktop] Failed to open path ${targetPath}:`, err);
+    }
+  });
 }
 
 function createWindow(): void {
@@ -177,6 +232,15 @@ function createWindow(): void {
         }>("get_scan_history", { limit: 5 });
         console.log(
           `[smoke-test] Database scan history query verified over IPC: count=${historyResponse.count}`
+        );
+
+        // Verify download tasks query over IPC
+        const tasksResponse = await pythonBridge.sendRequest<{
+          tasks: unknown[];
+          count: number;
+        }>("get_download_tasks", { limit: 5 });
+        console.log(
+          `[smoke-test] Downloader tasks query verified over IPC: count=${tasksResponse.count}`
         );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);

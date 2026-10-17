@@ -324,8 +324,8 @@ class MediaRepository:
                     id, media_id, status, selected_format_json,
                     destination_path, temp_path, bytes_downloaded,
                     total_bytes, progress_percent, error_message,
-                    retry_count, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    retry_count, created_at, updated_at, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     status = excluded.status,
                     selected_format_json = excluded.selected_format_json,
@@ -335,7 +335,8 @@ class MediaRepository:
                     progress_percent = excluded.progress_percent,
                     error_message = excluded.error_message,
                     retry_count = excluded.retry_count,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    completed_at = excluded.completed_at
                 """,
                 (
                     task.id,
@@ -351,6 +352,7 @@ class MediaRepository:
                     task.retry_count,
                     task.created_at.isoformat() if task.created_at else now,
                     now,
+                    task.completed_at.isoformat() if task.completed_at else None,
                 ),
             )
 
@@ -372,7 +374,7 @@ class MediaRepository:
             if status:
                 query += " WHERE t.status = ?"
                 params.append(str(status))
-            query += " ORDER BY t.created_at ASC LIMIT ?"
+            query += " ORDER BY t.created_at DESC LIMIT ?"
             params.append(limit)
 
             cursor.execute(query, tuple(params))
@@ -403,6 +405,9 @@ class MediaRepository:
                         created_at=datetime.fromisoformat(row["created_at"])
                         if row["created_at"]
                         else datetime.now(UTC),
+                        completed_at=datetime.fromisoformat(row["completed_at"])
+                        if row["completed_at"]
+                        else None,
                         updated_at=datetime.fromisoformat(row["updated_at"])
                         if row["updated_at"]
                         else datetime.now(UTC),

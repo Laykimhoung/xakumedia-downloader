@@ -114,6 +114,48 @@ export interface ClassifyUrlResult {
   media_items?: DiscoveredMediaItem[];
 }
 
+export interface ProgressUpdatePayload {
+  task_id: string;
+  status: "queued" | "downloading" | "merging" | "completed" | "failed" | "cancelled" | "paused";
+  bytes_downloaded: number;
+  total_bytes?: number | null;
+  progress_percent: number;
+  speed_bytes_sec: number;
+  eta_seconds?: number | null;
+  detail_message?: string | null;
+}
+
+export interface DownloadTaskRecord {
+  id: string;
+  media_item: DiscoveredMediaItem;
+  status: "queued" | "downloading" | "merging" | "completed" | "failed" | "cancelled" | "paused";
+  selected_format?: MediaFormatInfoPayload | null;
+  destination_path?: string | null;
+  temp_path?: string | null;
+  bytes_downloaded: number;
+  total_bytes?: number | null;
+  progress_percent: number;
+  speed_bytes_sec?: number;
+  error_message?: string | null;
+  retry_count: number;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface StartDownloadResult {
+  task: DownloadTaskRecord;
+}
+
+export interface CancelDownloadResult {
+  task_id: string;
+  cancelled: boolean;
+}
+
+export interface GetDownloadTasksResult {
+  tasks: DownloadTaskRecord[];
+  count: number;
+}
+
 export interface DesktopApi {
   /**
    * Simple connectivity probe between renderer and Electron main process.
@@ -184,6 +226,44 @@ export interface DesktopApi {
    * Remove a media item from the database.
    */
   deleteMediaItem: (mediaId: string) => Promise<{ id: string; deleted: boolean }>;
+
+  /**
+   * Enqueue and begin streaming download for a media item.
+   */
+  startDownload: (
+    mediaItem: DiscoveredMediaItem,
+    selectedFormat?: MediaFormatInfoPayload | null,
+    destinationPath?: string
+  ) => Promise<StartDownloadResult>;
+
+  /**
+   * Cancel an active or queued download task.
+   */
+  cancelDownload: (taskId: string) => Promise<CancelDownloadResult>;
+
+  /**
+   * Retrieve download tasks list filtered by status.
+   */
+  getDownloadTasks: (status?: string, limit?: number) => Promise<GetDownloadTasksResult>;
+
+  /**
+   * Subscribe to real-time progress events from the Python downloader.
+   */
+  onDownloadProgress: (
+    callback: (progress: ProgressUpdatePayload) => void
+  ) => () => void;
+
+  /**
+   * Subscribe to completed task events.
+   */
+  onDownloadCompleted: (
+    callback: (task: DownloadTaskRecord) => void
+  ) => () => void;
+
+  /**
+   * Open downloaded file or folder in Windows File Explorer.
+   */
+  openPath?: (targetPath: string) => Promise<void>;
 }
 
 declare global {

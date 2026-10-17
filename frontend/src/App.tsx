@@ -20,10 +20,16 @@ import {
   Trash2,
   RefreshCw,
   Eye,
+  FolderOpen,
+  XCircle,
+  RotateCcw,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
   DiscoveredMediaItem,
+  DownloadTaskRecord,
+  MediaFormatInfoPayload,
+  ProgressUpdatePayload,
   PythonBridgeStatus,
   PythonPingResult,
   ScanHistoryRecord,
@@ -57,6 +63,13 @@ export const App: React.FC = () => {
     loading: boolean;
   } | null>(null);
 
+  // Download Manager State
+  const [downloadTasks, setDownloadTasks] = useState<DownloadTaskRecord[]>([]);
+  const [downloadTasksLoading, setDownloadTasksLoading] = useState<boolean>(false);
+  const [downloadFilter, setDownloadFilter] = useState<"all" | "active" | "completed" | "failed">("all");
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [activeTaskCount, setActiveTaskCount] = useState<number>(0);
+
   const formatBytes = (bytes?: number | null): string => {
     if (!bytes) return "Unknown size";
     const units = ["B", "KB", "MB", "GB"];
@@ -67,6 +80,19 @@ export const App: React.FC = () => {
       unitIndex++;
     }
     return `${size.toFixed(1)} ${units[unitIndex]}`;
+  };
+
+  const formatSpeed = (bytesSec?: number | null): string => {
+    if (!bytesSec || bytesSec <= 0) return "0 B/s";
+    return `${formatBytes(bytesSec)}/s`;
+  };
+
+  const formatEta = (seconds?: number | null): string => {
+    if (seconds === undefined || seconds === null || seconds < 0) return "—";
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${mins}m ${secs}s`;
   };
 
   const fetchSavedMedia = async (filter?: "all" | "image" | "video" | "audio") => {
@@ -200,6 +226,64 @@ export const App: React.FC = () => {
     handleScanUrlWith(url);
   };
 
+  const fetchDownloadTasks = async () => {
+    if (!window.api?.getDownloadTasks) return;
+    setDownloadTasksLoading(true);
+    try {
+      const res = await window.api.getDownloadTasks();
+      setDownloadTasks(res.tasks || []);
+    } catch (err) {
+      console.error("Failed to load download tasks:", err);
+    } finally {
+      setDownloadTasksLoading(false);
+    }
+  };
+
+  const handleStartDownload = async (
+    item: DiscoveredMediaItem,
+    format?: MediaFormatInfoPayload | null
+  ) => {
+    if (!window.api?.startDownload) return;
+    setDownloadingIds((prev) => new Set(prev).add(item.id));
+    try {
+      const res = await window.api.startDownload(item, format);
+      setDownloadTasks((prev) => {
+        const filtered = prev.filter((t) => t.id !== res.task.id);
+        return [res.task, ...filtered];
+      });
+      setActiveTab("downloads");
+    } catch (err) {
+      console.error("Failed to start download:", err);
+    } finally {
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  };
+
+  const handleCancelDownload = async (taskId: string) => {
+    if (!window.api?.cancelDownload) return;
+    try {
+      await window.api.cancelDownload(taskId);
+      setDownloadTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, status: "cancelled" } : t))
+      );
+    } catch (err) {
+      console.error("Failed to cancel download:", err);
+    }
+  };
+
+  const handleOpenFileOrFolder = async (targetPath?: string | null) => {
+    if (!targetPath || !window.api?.openPath) return;
+    try {
+      await window.api.openPath(targetPath);
+    } catch (err) {
+      console.error("Failed to open target path:", err);
+    }
+  };
+
   const pingPythonEngine = async () => {
     if (!window.api?.pingPython) return;
     setIsPinging(true);
@@ -240,6 +324,16 @@ export const App: React.FC = () => {
             }
           }
 
+          // Initialize downloads list
+          if (window.api.getDownloadTasks) {
+            try {
+              const dls = await window.api.getDownloadTasks();
+              setDownloadTasks(dls.tasks || []);
+            } catch (err) {
+              console.warn("Could not load initial download tasks:", err);
+            }
+          }
+
           await pingPythonEngine();
         } catch (err) {
           setIpcStatus(`IPC Error: ${String(err)}`);
@@ -252,11 +346,65 @@ export const App: React.FC = () => {
     checkDesktopBridge();
   }, []);
 
+  // Update active task count
+  useEffect(() => {
+    const active = downloadTasks.filter(
+      (t) => t.status === "downloading" || t.status === "queued" || t.status === "merging"
+    ).length;
+    setActiveTaskCount(active);
+  }, [downloadTasks]);
+
+  // Real-time JSON-RPC Progress & Completion Event Listeners
+  useEffect(() => {
+    if (!window.api?.onDownloadProgress) return;
+
+    const unsubProgress = window.api.onDownloadProgress((payload: ProgressUpdatePayload) => {
+      setDownloadTasks((prev) => {
+        const exists = prev.some((t) => t.id === payload.task_id);
+        if (!exists) {
+          fetchDownloadTasks();
+          return prev;
+        }
+        return prev.map((t) =>
+          t.id === payload.task_id
+            ? {
+                ...t,
+                status: payload.status,
+                bytes_downloaded: payload.bytes_downloaded,
+                total_bytes: payload.total_bytes ?? t.total_bytes,
+                progress_percent: payload.progress_percent,
+                speed_bytes_sec: payload.speed_bytes_sec,
+                eta_seconds: payload.eta_seconds,
+                error_message: payload.detail_message ?? t.error_message,
+              }
+            : t
+        );
+      });
+    });
+
+    const unsubCompleted = window.api.onDownloadCompleted?.((completedTask: DownloadTaskRecord) => {
+      setDownloadTasks((prev) => {
+        const exists = prev.some((t) => t.id === completedTask.id);
+        if (exists) {
+          return prev.map((t) => (t.id === completedTask.id ? completedTask : t));
+        }
+        return [completedTask, ...prev];
+      });
+    });
+
+    return () => {
+      unsubProgress?.();
+      unsubCompleted?.();
+    };
+  }, []);
+
   useEffect(() => {
     if (activeTab === "library" || activeTab === "saved") {
       fetchSavedMedia(savedMediaFilter);
     } else if (activeTab === "history") {
       fetchScanHistory();
+    } else if (activeTab === "downloads") {
+      fetchDownloadTasks();
     }
   }, [activeTab, savedMediaFilter]);
 
@@ -297,14 +445,21 @@ export const App: React.FC = () => {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md text-sm font-medium transition-all ${
                     isActive
                       ? "bg-brand-red text-white shadow-md shadow-brand-red/20 font-semibold"
                       : "text-neutral-400 hover:text-brand-white hover:bg-brand-dark/50"
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center space-x-3">
+                    <Icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.id === "downloads" && activeTaskCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white text-brand-red animate-pulse">
+                      {activeTaskCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -348,10 +503,22 @@ export const App: React.FC = () => {
         <header className="h-14 border-b border-brand-dark flex items-center justify-between px-8 bg-brand-black/30">
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider text-neutral-400 font-mono">
-              Milestone 9 / SQLite Media Library & Scan History
+              Milestone 10 / Basic Download Manager & Streaming
             </span>
           </div>
           <div className="flex items-center space-x-4">
+            {activeTaskCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("downloads")}
+                className="flex items-center space-x-2 text-xs text-brand-red bg-red-950/40 hover:bg-red-900/50 px-3 py-1 rounded-full border border-red-800/60 transition-colors"
+              >
+                <span className="h-2 w-2 rounded-full bg-brand-red animate-ping" />
+                <span className="font-mono font-medium">
+                  {activeTaskCount} Active {activeTaskCount === 1 ? "Download" : "Downloads"}
+                </span>
+              </button>
+            )}
             <div className="flex items-center space-x-1.5 text-xs text-neutral-300 bg-brand-dark/60 px-3 py-1 rounded-full border border-brand-dark">
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               <span>Context Isolation Active</span>
@@ -562,6 +729,22 @@ export const App: React.FC = () => {
                           >
                             <Bookmark className={`h-3 w-3 ${bookmarkedIds.has(item.id) ? "fill-current" : ""}`} />
                           </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartDownload(item);
+                            }}
+                            disabled={downloadingIds.has(item.id)}
+                            className="absolute bottom-1 left-1 p-1 rounded-md bg-black/70 hover:bg-brand-red text-neutral-300 hover:text-white transition-all shadow-sm"
+                            title="Download this item"
+                          >
+                            {downloadingIds.has(item.id) ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-white" />
+                            ) : (
+                              <Download className="h-3 w-3" />
+                            )}
+                          </button>
                           <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
                             #{idx + 1}
                           </span>
@@ -726,13 +909,23 @@ export const App: React.FC = () => {
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between text-[11px] pt-1">
-                        <span className="text-neutral-400">
+                      <div className="flex items-center justify-between text-[11px] pt-2 border-t border-brand-dark/50">
+                        <span className="text-neutral-400 font-mono">
                           Discovered at: {new Date(scanResult.media_item.created_at).toLocaleTimeString()}
                         </span>
-                        <span className="text-emerald-400 font-medium">
-                          Ready for Download Queue (Milestone 13)
-                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleStartDownload(scanResult.media_item!)}
+                          disabled={downloadingIds.has(scanResult.media_item.id)}
+                          className="px-4 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-2 transition-all shadow-md shadow-brand-red/30"
+                        >
+                          {downloadingIds.has(scanResult.media_item.id) ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Download className="h-3.5 w-3.5" />
+                          )}
+                          <span>Download Now</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1115,13 +1308,28 @@ export const App: React.FC = () => {
                       </div>
 
                       <div className="border-t border-brand-dark/60 pt-2 flex items-center justify-between">
-                        <button
-                          onClick={() => handleReScan(item.source_url)}
-                          className="text-[11px] font-mono text-neutral-400 hover:text-white flex items-center space-x-1"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                          <span>Source</span>
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleStartDownload(item)}
+                            disabled={downloadingIds.has(item.id)}
+                            className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
+                            title="Download this media item"
+                          >
+                            {downloadingIds.has(item.id) ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Download className="h-3 w-3" />
+                            )}
+                            <span>Download</span>
+                          </button>
+                          <button
+                            onClick={() => handleReScan(item.source_url)}
+                            className="text-[11px] font-mono text-neutral-400 hover:text-white flex items-center space-x-1"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            <span>Source</span>
+                          </button>
+                        </div>
                         <button
                           onClick={() => handleDeleteSavedMedia(item.id)}
                           className="text-[11px] font-mono text-red-400/80 hover:text-red-400 flex items-center space-x-1"
@@ -1138,7 +1346,354 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {activeTab !== "scan" && activeTab !== "history" && activeTab !== "library" && activeTab !== "saved" && (
+          {/* Download Manager View */}
+          {activeTab === "downloads" && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-brand-white">
+                    Download Manager
+                  </h1>
+                  <p className="text-sm text-neutral-400 mt-1">
+                    Chunked HTTP/HTTPS streaming, atomic .part renaming, real-time speed &amp; ETA telemetry.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  {pythonStatus?.info?.download_dir && (
+                    <button
+                      onClick={() => handleOpenFileOrFolder(pythonStatus.info?.download_dir)}
+                      className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                      title={`Open ${pythonStatus.info.download_dir}`}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      <span>Open Folder</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={fetchDownloadTasks}
+                    disabled={downloadTasksLoading}
+                    className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${downloadTasksLoading ? "animate-spin" : ""}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Pills */}
+              <div className="flex items-center space-x-2 border-b border-brand-dark/60 pb-3">
+                {[
+                  { id: "all", label: "All Tasks", count: downloadTasks.length },
+                  {
+                    id: "active",
+                    label: "Active",
+                    count: downloadTasks.filter(
+                      (t) =>
+                        t.status === "downloading" ||
+                        t.status === "queued" ||
+                        t.status === "merging"
+                    ).length,
+                  },
+                  {
+                    id: "completed",
+                    label: "Completed",
+                    count: downloadTasks.filter((t) => t.status === "completed").length,
+                  },
+                  {
+                    id: "failed",
+                    label: "Failed / Cancelled",
+                    count: downloadTasks.filter(
+                      (t) => t.status === "failed" || t.status === "cancelled"
+                    ).length,
+                  },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setDownloadFilter(tab.id as typeof downloadFilter)}
+                    className={`px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
+                      downloadFilter === tab.id
+                        ? "bg-brand-red text-white font-semibold shadow-sm shadow-brand-red/30"
+                        : "bg-brand-dark/40 text-neutral-400 hover:text-white hover:bg-brand-dark"
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className="text-[10px] opacity-75">({tab.count})</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Task List */}
+              {downloadTasksLoading && downloadTasks.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 text-neutral-400">
+                  <Loader2 className="h-6 w-6 animate-spin text-brand-red" />
+                  <span className="text-xs font-mono">Loading download tasks from SQLite...</span>
+                </div>
+              ) : (() => {
+                const filtered = downloadTasks.filter((t) => {
+                  if (downloadFilter === "active") {
+                    return (
+                      t.status === "downloading" ||
+                      t.status === "queued" ||
+                      t.status === "merging"
+                    );
+                  }
+                  if (downloadFilter === "completed") {
+                    return t.status === "completed";
+                  }
+                  if (downloadFilter === "failed") {
+                    return t.status === "failed" || t.status === "cancelled";
+                  }
+                  return true;
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="py-20 flex flex-col items-center justify-center space-y-3 bg-brand-dark/20 border border-brand-dark/60 rounded-xl text-center p-8">
+                      <Download className="h-10 w-10 text-neutral-400 stroke-1" />
+                      <h3 className="text-sm font-semibold text-brand-white">
+                        {downloadFilter === "all"
+                          ? "No Downloads Queued"
+                          : `No ${downloadFilter} downloads`}
+                      </h3>
+                      <p className="text-xs text-neutral-400 max-w-sm">
+                        Scan media from any supported URL or pick an item from your library to start streaming to disk.
+                      </p>
+                      <button
+                        onClick={() => setActiveTab("scan")}
+                        className="mt-2 px-4 py-2 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
+                      >
+                        Go to Scanner
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {filtered.map((task) => {
+                      const isRunning =
+                        task.status === "downloading" ||
+                        task.status === "queued" ||
+                        task.status === "merging";
+                      const isCompleted = task.status === "completed";
+                      const isFailed = task.status === "failed";
+                      const isCancelled = task.status === "cancelled";
+
+                      return (
+                        <div
+                          key={task.id}
+                          className="bg-brand-dark/30 border border-brand-dark rounded-xl p-4 flex flex-col space-y-3 hover:border-brand-dark/90 transition-all"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3 min-w-0">
+                              {/* Media Thumbnail */}
+                              <div className="w-14 h-14 rounded-lg bg-brand-black/90 border border-brand-dark overflow-hidden flex items-center justify-center shrink-0">
+                                {task.media_item.thumbnail_url ? (
+                                  <img
+                                    src={task.media_item.thumbnail_url}
+                                    alt={task.media_item.title || "Download"}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : task.media_item.media_type === "video" ? (
+                                  <Film className="h-6 w-6 text-purple-400" />
+                                ) : (
+                                  <ImageIcon className="h-6 w-6 text-emerald-400" />
+                                )}
+                              </div>
+
+                              {/* Meta info */}
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-semibold text-sm text-brand-white truncate max-w-md font-sans">
+                                    {task.media_item.title || "Untitled Media"}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-brand-black/80 border border-brand-dark text-neutral-300 shrink-0">
+                                    {task.selected_format?.container ||
+                                      task.media_item.available_formats[0]?.container ||
+                                      task.media_item.media_type}
+                                  </span>
+                                  {task.selected_format?.resolution && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-purple-950/60 border border-purple-800/40 text-purple-300 shrink-0">
+                                      {task.selected_format.resolution}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-3 text-xs font-mono text-neutral-400">
+                                  <span>Author: {task.media_item.author || "Unknown"}</span>
+                                  <span>·</span>
+                                  <span className="truncate max-w-xs">
+                                    {task.media_item.original_url}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Status Badge & Actions */}
+                            <div className="flex items-center space-x-2 shrink-0">
+                              {isRunning && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-amber-950/60 border border-amber-800/60 text-amber-300 flex items-center space-x-1.5">
+                                  <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
+                                  <span>{task.status}</span>
+                                </span>
+                              )}
+                              {isCompleted && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 flex items-center space-x-1.5">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                                  <span>Completed</span>
+                                </span>
+                              )}
+                              {isFailed && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-red-950/60 border border-red-800/60 text-red-300 flex items-center space-x-1.5">
+                                  <AlertCircle className="h-3.5 w-3.5 text-red-400" />
+                                  <span>Failed</span>
+                                </span>
+                              )}
+                              {isCancelled && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-neutral-900 border border-neutral-700 text-neutral-400 flex items-center space-x-1.5">
+                                  <XCircle className="h-3.5 w-3.5 text-neutral-400" />
+                                  <span>Cancelled</span>
+                                </span>
+                              )}
+
+                              {/* Action Buttons */}
+                              {isRunning && (
+                                <button
+                                  onClick={() => handleCancelDownload(task.id)}
+                                  className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-red-300 flex items-center space-x-1 transition-colors"
+                                  title="Cancel active download"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  <span>Cancel</span>
+                                </button>
+                              )}
+                              {isCompleted && task.destination_path && (
+                                <button
+                                  onClick={() => handleOpenFileOrFolder(task.destination_path)}
+                                  className="px-2.5 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 rounded-md text-xs font-mono text-emerald-300 flex items-center space-x-1.5 transition-colors"
+                                  title={`Show in folder: ${task.destination_path}`}
+                                >
+                                  <FolderOpen className="h-3.5 w-3.5" />
+                                  <span>Show File</span>
+                                </button>
+                              )}
+                              {(isFailed || isCancelled) && (
+                                <button
+                                  onClick={() =>
+                                    handleStartDownload(
+                                      task.media_item,
+                                      task.selected_format
+                                    )
+                                  }
+                                  className="px-2.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-white flex items-center space-x-1.5 transition-colors"
+                                  title="Retry download"
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  <span>Retry</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Progress bar */}
+                          <div className="space-y-1.5">
+                            <div className="w-full h-2 rounded-full bg-brand-black/90 overflow-hidden border border-brand-dark/50">
+                              <div
+                                className={`h-full transition-all duration-300 ${
+                                  isCompleted
+                                    ? "bg-emerald-500"
+                                    : isFailed
+                                    ? "bg-red-500"
+                                    : isCancelled
+                                    ? "bg-neutral-600"
+                                    : "bg-gradient-to-r from-brand-red via-purple-600 to-indigo-500"
+                                }`}
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    Math.max(0, task.progress_percent)
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+
+                            {/* Telemetry line */}
+                            <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400">
+                              <div className="flex items-center space-x-3">
+                                <span>
+                                  {formatBytes(task.bytes_downloaded)}
+                                  {task.total_bytes
+                                    ? ` / ${formatBytes(task.total_bytes)}`
+                                    : ""}
+                                </span>
+                                <span>·</span>
+                                <span className="font-semibold text-brand-white">
+                                  {task.progress_percent.toFixed(1)}%
+                                </span>
+                                {isRunning &&
+                                  task.speed_bytes_sec !== undefined &&
+                                  task.speed_bytes_sec > 0 && (
+                                    <>
+                                      <span>·</span>
+                                      <span className="text-emerald-400">
+                                        {formatSpeed(task.speed_bytes_sec)}
+                                      </span>
+                                    </>
+                                  )}
+                                {isRunning &&
+                                  task.total_bytes &&
+                                  task.speed_bytes_sec &&
+                                  task.speed_bytes_sec > 0 && (
+                                    <>
+                                      <span>·</span>
+                                      <span>
+                                        ETA:{" "}
+                                        {formatEta(
+                                          (task.total_bytes - task.bytes_downloaded) /
+                                            task.speed_bytes_sec
+                                        )}
+                                      </span>
+                                    </>
+                                  )}
+                              </div>
+
+                              <div className="truncate max-w-sm text-right">
+                                {task.destination_path ? (
+                                  <span
+                                    className="text-neutral-300"
+                                    title={task.destination_path}
+                                  >
+                                    {task.destination_path.split(/[\\/]/).pop()}
+                                  </span>
+                                ) : (
+                                  <span>
+                                    {new Date(task.created_at).toLocaleTimeString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Error message detail if failed */}
+                            {task.error_message && (
+                              <div className="text-[11px] font-mono text-red-300 bg-red-950/40 p-2 rounded border border-red-800/40">
+                                Error: {task.error_message}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {activeTab !== "scan" &&
+            activeTab !== "history" &&
+            activeTab !== "library" &&
+            activeTab !== "saved" &&
+            activeTab !== "downloads" && (
             <div className="max-w-2xl mx-auto text-center py-24 space-y-3">
               <h2 className="text-lg font-bold text-brand-white capitalize">
                 {activeTab.replace("-", " ")}

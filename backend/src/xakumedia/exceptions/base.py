@@ -107,6 +107,15 @@ class NetworkTimeoutError(DownloadError):
         super().__init__(message, code="NETWORK_TIMEOUT", details=details)
 
 
+class DownloadCancelledError(DownloadError):
+    """Raised when a download task is explicitly cancelled by the user."""
+
+    def __init__(
+        self, message: str = "Download cancelled by user", details: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(message, code="DOWNLOAD_CANCELLED", details=details)
+
+
 class FileIntegrityError(DownloadError):
     """Raised when a downloaded file fails size or format integrity verification."""
 

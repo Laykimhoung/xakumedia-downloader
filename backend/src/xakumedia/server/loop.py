@@ -2,6 +2,7 @@
 
 import json
 import sys
+import threading
 
 from pydantic import ValidationError
 
@@ -17,19 +18,23 @@ from .protocol import (
 
 logger = get_logger("server.loop")
 
+_stdout_lock = threading.Lock()
+
 
 def send_response(response: JsonRpcResponse) -> None:
     """Serialize and write a response line to stdout, then immediately flush."""
     line = response.model_dump_json()
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    with _stdout_lock:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
 
 
 def send_notification(notification: JsonRpcNotification) -> None:
     """Serialize and write a one-way notification line to stdout, then flush."""
     line = notification.model_dump_json()
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    with _stdout_lock:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
 
 
 def run_stdio_server(dispatcher: RpcDispatcher | None = None) -> int:

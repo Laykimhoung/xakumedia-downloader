@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 17, 2026  
-**Active Milestone:** Milestone 9 — Media Library & Local SQLite Persistence  
-**Overall Status:** Core Extraction, Local Persistence & Library Phase  
+**Active Milestone:** Milestone 10 — Basic Download Manager Engine & Streaming  
+**Overall Status:** Active Streaming Download Manager & Queue Phase  
 
 ---
 
@@ -30,7 +30,8 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 6** | Direct URL Detection | **Completed** | Direct scanner (`scanners/direct.py`) inspecting MIME headers, content lengths, and filenames; SSRF defense (`utils/security.py`) blocking private IPs, loopbacks, and metadata endpoints; `classify_url` RPC handler exposed via IPC bridge (`window.api.classifyUrl`); interactive React scanning interface with quick presets and live media discovery preview card; 37 unit tests passing; smoke test asserting SSRF defense over IPC. |
 | **Milestone 7** | First Real Video Extraction (yt-dlp) | **Completed** | Integrated `yt-dlp>=2024.8.6` into isolated Python environment; created `extractors/video.py` for metadata and stream format extraction; normalized resolutions, containers, codecs, and stream merging requirements (`requires_merge`); mapped platform errors (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`); registered `extract_video` RPC and desktop IPC bridge; interactive React format stream chips and platform video badge; 41 unit tests passing; desktop smoke test passing. |
 | **Milestone 8** | First Real Gallery Extraction (gallery-dl) | **Completed** | Integrated `gallery-dl>=1.27.0` in isolated venv; created `extractors/gallery.py` using `DataJob` with `file=None` (zero stdio pollution); parsed and normalized multi-item albums into `MediaItem` collections; mapped domain errors (`PrivateMediaError`, `RateLimitError`, `MediaUnavailableError`, `UnsupportedSourceError`); unified `classify_url` and registered explicit `extract_gallery` RPC; typed `extractGallery` IPC method; rendered responsive multi-item album grids with sequential `#index` labels in React; 48 unit tests passing; desktop smoke test passing. |
-| **Milestone 9** | Media Library & Local SQLite Persistence | **Completed** | Implemented relational SQLite schema with migrations (`media_items`, `scan_history`, `scan_history_items`, `download_tasks`, `app_preferences`); built thread-safe connection manager (`db/connection.py`) with WAL mode, foreign keys, busy timeouts; built repository layer (`db/repository.py`); registered database RPC handlers with auto-persistence during URL classification; exposed typed desktop IPC bridge (`getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`); built interactive React Media Library (filter pills, deletion, bookmark toggle) and Scan History (audit log, item inspection drawer, 1-click rescan); 56 unit tests passing; desktop smoke test verified database round-trip over IPC. |
+| **Milestone 9** | Media Library & Local SQLite Persistence | **Completed** | Implemented relational SQLite schema with migrations (`media_items`, `scan_history`, `scan_history_items`, `download_tasks`, `app_preferences`); built thread-safe connection manager (`db/connection.py`) with WAL mode, foreign keys, busy timeouts; built repository layer (`db/repository.py`); registered database RPC handlers with auto-persistence during URL classification; exposed typed desktop IPC bridge (`getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`); built interactive React Media Library and Scan History; 56 unit tests passing; desktop smoke test verified database round-trip over IPC. |
+| **Milestone 10** | Basic Download Manager Engine & Streaming | **Completed** | Built chunked HTTP/HTTPS streaming I/O (`downloader/stream.py`) with atomic `.part` staging and sequential collision avoidance; built `DownloadManager` (`downloader/manager.py`) with thread pool executor and SQLite persistence; added thread-safe JSON-RPC notifications (`_stdout_lock`); registered `start_download`, `cancel_download`, `get_download_tasks` RPC handlers; exposed typed IPC bridge and desktop `openPath`; built interactive React Downloads Manager view with real-time progress bars, speed, ETA, and cancellation; 63 unit tests passing; desktop smoke test passing. |
 
 ---
 
@@ -51,48 +52,50 @@ The system relies on a secure 3-tier desktop architecture:
   - Dedicated virtual environment isolated at `backend/.venv/` (zero root clutter).
   - `backend/pyproject.toml` adhering to PEP 621.
   - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`, `yt-dlp>=2024.8.6`, `gallery-dl>=1.27.0`.
-  - Developer tooling installed and passing: `pytest` (56 passed in 1.04s), `ruff` (all checks passed).
+  - Developer tooling installed and passing: `pytest` (63 passed in 1.48s), `ruff` (all checks passed).
 - **Frontend & Desktop Tooling:**
   - Modular `frontend/package.json` with React 18, Vite 5, Tailwind CSS 3, TypeScript 5, Electron 33.
   - Dependencies isolated in `frontend/node_modules/` (zero root clutter).
-  - Production build verified: `vite build` generated in 3.02s (`frontend/dist/`).
+  - Production build verified: `vite build` generated in 3.57s (`frontend/dist/`).
   - Strict type checking verified: `tsc --noEmit` cleanly passed.
 - **Desktop Shell & Security Architecture:**
   - Electron 33 main process in `desktop/main/index.ts` with strict security defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, webSecurity, custom CSP header enforcement).
-  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`, `extractGallery`, `getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`).
+  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`, `extractGallery`, `getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`, `startDownload`, `cancelDownload`, `getDownloadTasks`, `onDownloadProgress`, `onDownloadCompleted`, `openPath`).
   - Fast esbuild desktop compilation (`scripts/build-desktop.mjs`) generating `desktop/dist/main.cjs` and `desktop/dist/preload.cjs`.
-  - Hot-reloading development orchestrator (`scripts/dev.mjs`).
-  - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, SSRF protection, database IPC query, and graceful exit.
-- **Media Library & Local SQLite Persistence (Milestone 9):**
-  - Database Schema & Migrations (`backend/src/xakumedia/db/schema.py`): Tables `schema_version`, `scan_history`, `media_items`, `scan_history_items`, `download_tasks`, `app_preferences` with foreign keys, cascading deletes, and self-healing column checks.
-  - Thread-Safe Connection Management (`backend/src/xakumedia/db/connection.py`): WAL mode (`PRAGMA journal_mode = WAL`), foreign keys enabled (`PRAGMA foreign_keys = ON`), busy timeout (5000ms), and atomic transaction context manager (`get_db_session`).
-  - Repository Layer (`backend/src/xakumedia/db/repository.py`): `MediaRepository` providing atomic scan persistence, URL classification history, deterministic preview thumbnail lookup, saved bookmarks CRUD, and task queue persistence.
-  - Automatic Scan Logging: `classify_url` RPC automatically logs every successful direct, video, or gallery scan event to SQLite.
-  - Preload & Main IPC Bridge: Added typed database methods in `desktop/shared/types.ts`, `desktop/preload/index.ts`, and `desktop/main/index.ts`.
-  - React Media Library & History UI (`frontend/src/App.tsx`):
-    - Media Library: Filter pills (All, Videos, Images, Audio), thumbnail cards, metadata, delete, and source re-scanning.
-    - Scan History: Full audit log, preview thumbnails, item count badges, inspect scan items drawer, and 1-click rescan.
-    - Bookmark Button: Discovered media cards (both single-item and multi-item gallery grids) feature live bookmark toggles updating SQLite instantly.
-  - Automated Verification: 8 database unit tests in `test_database.py` (56 total tests in suite passing in 1.04s); desktop smoke test verified end-to-end IPC database query (`get_scan_history`).
+  - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, SSRF protection, database IPC query, downloader tasks query, and graceful exit.
+- **Basic Download Manager Engine & Streaming (Milestone 10):**
+  - Chunked Streaming I/O (`backend/src/xakumedia/downloader/stream.py`): Efficient 64KB buffer chunks streaming direct to disk via `httpx.stream`, polling `is_cancelled` token, computing speed (bytes/sec) and ETA, saving to `.part` extension, and atomically moving to final destination path upon complete transfer.
+  - Download Manager (`backend/src/xakumedia/downloader/manager.py`): ThreadPoolExecutor managing background download threads, generating Windows-safe sequential filenames (`format_sequential_filename`), persisting state transitions in SQLite (`queued` -> `downloading` -> `completed` / `failed` / `cancelled`), and dispatching real-time notifications.
+  - Stdio JSON-RPC Notifications: Thread-safe stdout locking (`_stdout_lock = threading.Lock()`) in `backend/src/xakumedia/server/loop.py` to prevent stdout collisions between synchronous request-responses and asynchronous download progress notifications.
+  - Dispatcher RPC Handlers (`backend/src/xakumedia/server/dispatcher.py`): Handlers for `start_download`, `cancel_download`, and `get_download_tasks`.
+  - Electron Preload & Main IPC Bridge: Added typed IPC handlers in `desktop/main/index.ts`, typed method signatures in `desktop/shared/types.ts`, and context-bridge exposure in `desktop/preload/index.ts`.
+  - Windows File Explorer Integration: `shell.showItemInFolder` and `shell.openPath` via `window.api.openPath`.
+  - React Downloads Manager UI (`frontend/src/App.tsx`):
+    - Dedicated Downloads tab with status filter tabs (All, Active, Completed, Failed/Cancelled).
+    - Real-time progress bars with animated gradient, percentage, speed in MB/s, ETA, and downloaded vs total bytes.
+    - Live cancellation and retry buttons.
+    - "Show File" button opening downloaded file in Windows File Explorer.
+    - Immediate "Download Now" buttons on Scanner discovery cards and Media Library items.
+    - Active downloads indicator in sidebar navigation and top application header.
+  - Automated Verification: 7 unit tests in `backend/tests/test_downloader.py` covering chunk streaming, atomic rename, cancellation tokens, manager lifecycle, and sequential naming; all 63 pytest tests pass in 1.48s; desktop smoke test verified end-to-end IPC query for download tasks.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Download execution engine, chunked streaming disk writes, and pause/resume are scheduled for Milestone 10.
-- FFmpeg stream merging and format conversion are scheduled for Milestone 11.
+- Stream merging of separate video + audio tracks (e.g. YouTube 1080p formats requiring FFmpeg) is scheduled for Milestone 11.
+- Batch queue orchestration and multi-item gallery downloads are scheduled for Milestone 13.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 10 — Basic Download Manager Engine & Streaming**
+**Next Milestone:** **Milestone 11 — FFmpeg Stream Merging & Format Conversion**
 
 ### Acceptance Criteria:
-1. Implement single-file HTTP/HTTPS download engine using streaming I/O (`httpx.stream`) without buffering entire files in RAM.
-2. Implement atomic file writes using temporary file naming (`.part` extension) and atomic rename upon completion.
-3. Emit structured real-time progress events (`bytes_downloaded`, `total_bytes`, `progress_percent`, `speed_bytes_sec`, `eta_seconds`) over JSON-RPC.
-4. Integrate download task state transitions in SQLite (`queued` -> `downloading` -> `completed` / `failed`).
-5. Wire Electron IPC event channel for live progress streaming from Python to renderer.
-6. Connect React Downloads tab to display live downloading progress bars, speed, ETA, and cancellation controls.
-7. Automated tests for chunk streaming, partial file handling, and network interruption recovery.
+1. Locate and verify FFmpeg and FFprobe binaries dynamically from system PATH or configured path.
+2. Implement audio/video stream multiplexing for formats tagged with `requires_merge: true` using FFmpeg subprocess without shell invocation.
+3. Implement safe post-download cleanup of intermediate unmerged streams upon successful completion.
+4. Expose merging progress states (`status: "merging"`) in JSON-RPC and React UI.
+5. Add automated tests with synthetic test streams or mock FFmpeg wrappers.
+
