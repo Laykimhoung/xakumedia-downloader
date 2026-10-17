@@ -2,6 +2,7 @@
 
 from .base import (
     ConfigurationError,
+    DatabaseError,
     DiskSpaceError,
     DownloadError,
     DRMProtectedError,
@@ -22,6 +23,7 @@ from .base import (
 __all__ = [
     "XakuMediaError",
     "ConfigurationError",
+    "DatabaseError",
     "UrlClassificationError",
     "ExtractionError",
     "MediaUnavailableError",

@@ -31,6 +31,13 @@ class ConfigurationError(XakuMediaError):
         super().__init__(message, code="CONFIG_ERROR", details=details)
 
 
+class DatabaseError(XakuMediaError):
+    """Raised when a local database operation or migration fails."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, code="DATABASE_ERROR", details=details)
+
+
 # URL Classification & Extraction
 class UrlClassificationError(XakuMediaError):
     """Raised when URL classification fails or URL is malformed."""

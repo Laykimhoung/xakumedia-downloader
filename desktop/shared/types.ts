@@ -73,7 +73,42 @@ export interface DiscoveredMediaItem {
   created_at: string;
 }
 
+export interface ScanHistoryRecord {
+  id: string;
+  raw_url: string;
+  normalized_url: string;
+  category: string;
+  platform?: string | null;
+  domain?: string | null;
+  title_hint?: string | null;
+  author_hint?: string | null;
+  item_count: number;
+  is_supported: boolean;
+  scanned_at: string;
+  preview_thumbnail?: string | null;
+}
+
+export interface ScanHistoryResult {
+  items: ScanHistoryRecord[];
+  count: number;
+}
+
+export interface SavedMediaResult {
+  items: DiscoveredMediaItem[];
+  count: number;
+}
+
+export interface ToggleSaveResult {
+  id: string;
+  is_saved: boolean;
+}
+
+export interface ClearScanHistoryResult {
+  deleted_count: number;
+}
+
 export interface ClassifyUrlResult {
+  scan_id?: string | null;
   classified_url: ClassifiedUrlInfo;
   media_item?: DiscoveredMediaItem | null;
   media_items?: DiscoveredMediaItem[];
@@ -119,6 +154,36 @@ export interface DesktopApi {
    * Extract gallery or multi-image collection items using gallery-dl.
    */
   extractGallery?: (url: string) => Promise<ClassifyUrlResult>;
+
+  /**
+   * Retrieve recent URL scan history records from local SQLite.
+   */
+  getScanHistory: (limit?: number, offset?: number) => Promise<ScanHistoryResult>;
+
+  /**
+   * Retrieve all items discovered in a particular scan event.
+   */
+  getScanItems: (scanId: string) => Promise<{ items: DiscoveredMediaItem[] }>;
+
+  /**
+   * Clear all scan history or a specific scan history entry.
+   */
+  clearScanHistory: (scanId?: string) => Promise<ClearScanHistoryResult>;
+
+  /**
+   * Retrieve bookmarked/saved media library items.
+   */
+  getSavedMedia: (mediaType?: string, limit?: number, offset?: number) => Promise<SavedMediaResult>;
+
+  /**
+   * Bookmark or un-bookmark a media item.
+   */
+  toggleSaveMedia: (mediaId: string) => Promise<ToggleSaveResult>;
+
+  /**
+   * Remove a media item from the database.
+   */
+  deleteMediaItem: (mediaId: string) => Promise<{ id: string; deleted: boolean }>;
 }
 
 declare global {

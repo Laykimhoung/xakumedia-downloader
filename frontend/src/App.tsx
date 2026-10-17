@@ -17,11 +17,16 @@ import {
   Loader2,
   Sparkles,
   Layers,
+  Trash2,
+  RefreshCw,
+  Eye,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
+  DiscoveredMediaItem,
   PythonBridgeStatus,
   PythonPingResult,
+  ScanHistoryRecord,
   SystemInfo,
 } from "../../desktop/shared/types";
 
@@ -38,6 +43,20 @@ export const App: React.FC = () => {
   const [scanResult, setScanResult] = useState<ClassifyUrlResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  // SQLite Persistence State (Media Library & Scan History)
+  const [savedMediaItems, setSavedMediaItems] = useState<DiscoveredMediaItem[]>([]);
+  const [savedMediaLoading, setSavedMediaLoading] = useState<boolean>(false);
+  const [savedMediaFilter, setSavedMediaFilter] = useState<"all" | "image" | "video" | "audio">("all");
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+
+  const [scanHistory, setScanHistory] = useState<ScanHistoryRecord[]>([]);
+  const [scanHistoryLoading, setScanHistoryLoading] = useState<boolean>(false);
+  const [selectedScanDetail, setSelectedScanDetail] = useState<{
+    scan: ScanHistoryRecord;
+    items: DiscoveredMediaItem[];
+    loading: boolean;
+  } | null>(null);
+
   const formatBytes = (bytes?: number | null): string => {
     if (!bytes) return "Unknown size";
     const units = ["B", "KB", "MB", "GB"];
@@ -50,9 +69,97 @@ export const App: React.FC = () => {
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   };
 
-  const handleScanUrl = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!urlInput.trim() || isScanning) return;
+  const fetchSavedMedia = async (filter?: "all" | "image" | "video" | "audio") => {
+    if (!window.api?.getSavedMedia) return;
+    setSavedMediaLoading(true);
+    try {
+      const typeParam = filter && filter !== "all" ? filter : undefined;
+      const res = await window.api.getSavedMedia(typeParam);
+      setSavedMediaItems(res.items || []);
+      if (!typeParam) {
+        setBookmarkedIds(new Set((res.items || []).map((i) => i.id)));
+      }
+    } catch (err) {
+      console.error("Failed to load saved media:", err);
+    } finally {
+      setSavedMediaLoading(false);
+    }
+  };
+
+  const fetchScanHistory = async () => {
+    if (!window.api?.getScanHistory) return;
+    setScanHistoryLoading(true);
+    try {
+      const res = await window.api.getScanHistory(50, 0);
+      setScanHistory(res.items || []);
+    } catch (err) {
+      console.error("Failed to load scan history:", err);
+    } finally {
+      setScanHistoryLoading(false);
+    }
+  };
+
+  const handleToggleBookmark = async (item: DiscoveredMediaItem) => {
+    if (!window.api?.toggleSaveMedia) return;
+    try {
+      const res = await window.api.toggleSaveMedia(item.id);
+      setBookmarkedIds((prev) => {
+        const next = new Set(prev);
+        if (res.is_saved) {
+          next.add(item.id);
+        } else {
+          next.delete(item.id);
+        }
+        return next;
+      });
+      if (activeTab === "library" || activeTab === "saved") {
+        await fetchSavedMedia(savedMediaFilter);
+      }
+    } catch (err) {
+      console.error("Failed to toggle bookmark:", err);
+    }
+  };
+
+  const handleDeleteSavedMedia = async (mediaId: string) => {
+    if (!window.api?.deleteMediaItem) return;
+    try {
+      await window.api.deleteMediaItem(mediaId);
+      setBookmarkedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(mediaId);
+        return next;
+      });
+      setSavedMediaItems((prev) => prev.filter((i) => i.id !== mediaId));
+    } catch (err) {
+      console.error("Failed to delete media item:", err);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (!window.api?.clearScanHistory) return;
+    try {
+      await window.api.clearScanHistory();
+      setScanHistory([]);
+      setSelectedScanDetail(null);
+    } catch (err) {
+      console.error("Failed to clear scan history:", err);
+    }
+  };
+
+  const handleInspectScan = async (scan: ScanHistoryRecord) => {
+    if (!window.api?.getScanItems) return;
+    setSelectedScanDetail({ scan, items: [], loading: true });
+    try {
+      const res = await window.api.getScanItems(scan.id);
+      setSelectedScanDetail({ scan, items: res.items || [], loading: false });
+    } catch (err) {
+      console.error("Failed to fetch scan items:", err);
+      setSelectedScanDetail(null);
+    }
+  };
+
+  const handleScanUrlWith = async (urlToScan: string) => {
+    if (!urlToScan.trim() || isScanning) return;
 
     setIsScanning(true);
     setScanError(null);
@@ -65,19 +172,32 @@ export const App: React.FC = () => {
     }
 
     try {
-      const res = await window.api.classifyUrl(urlInput.trim());
+      const res = await window.api.classifyUrl(urlToScan.trim());
       setScanResult(res);
       if (!res.classified_url.is_supported) {
         setScanError(
           `The target URL (${res.classified_url.category}) could not be resolved by direct detection, yt-dlp, or gallery-dl.`
         );
       }
+      // Scan event is automatically saved in SQLite repository
+      fetchScanHistory();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setScanError(msg);
     } finally {
       setIsScanning(false);
     }
+  };
+
+  const handleScanUrl = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    await handleScanUrlWith(urlInput);
+  };
+
+  const handleReScan = (url: string) => {
+    setUrlInput(url);
+    setActiveTab("scan");
+    handleScanUrlWith(url);
   };
 
   const pingPythonEngine = async () => {
@@ -110,6 +230,16 @@ export const App: React.FC = () => {
             setPythonStatus(pyStatus);
           }
 
+          // Initialize bookmarks
+          if (window.api.getSavedMedia) {
+            try {
+              const saved = await window.api.getSavedMedia();
+              setBookmarkedIds(new Set((saved.items || []).map((i) => i.id)));
+            } catch (err) {
+              console.warn("Could not load initial saved media:", err);
+            }
+          }
+
           await pingPythonEngine();
         } catch (err) {
           setIpcStatus(`IPC Error: ${String(err)}`);
@@ -121,6 +251,14 @@ export const App: React.FC = () => {
 
     checkDesktopBridge();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "library" || activeTab === "saved") {
+      fetchSavedMedia(savedMediaFilter);
+    } else if (activeTab === "history") {
+      fetchScanHistory();
+    }
+  }, [activeTab, savedMediaFilter]);
 
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -210,7 +348,7 @@ export const App: React.FC = () => {
         <header className="h-14 border-b border-brand-dark flex items-center justify-between px-8 bg-brand-black/30">
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider text-neutral-400 font-mono">
-              Milestone 6 / Direct URL Detection
+              Milestone 9 / SQLite Media Library & Scan History
             </span>
           </div>
           <div className="flex items-center space-x-4">
@@ -409,6 +547,21 @@ export const App: React.FC = () => {
                           ) : (
                             <ImageIcon className="h-6 w-6 text-neutral-400" />
                           )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleBookmark(item);
+                            }}
+                            className={`absolute top-1 left-1 p-1 rounded-md transition-all ${
+                              bookmarkedIds.has(item.id)
+                                ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
+                                : "bg-black/60 text-neutral-300 hover:text-white"
+                            }`}
+                            title={bookmarkedIds.has(item.id) ? "Saved in Library" : "Bookmark to Library"}
+                          >
+                            <Bookmark className={`h-3 w-3 ${bookmarkedIds.has(item.id) ? "fill-current" : ""}`} />
+                          </button>
                           <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
                             #{idx + 1}
                           </span>
@@ -466,9 +619,31 @@ export const App: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center space-x-1 text-xs text-emerald-400 font-mono">
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span>Classified Successfully</span>
+                    <div className="flex items-center space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleBookmark(scanResult.media_item!)}
+                        className={`px-2.5 py-1 rounded text-xs font-mono font-medium flex items-center space-x-1.5 transition-all ${
+                          bookmarkedIds.has(scanResult.media_item.id)
+                            ? "bg-brand-red text-white shadow-sm shadow-brand-red/30"
+                            : "bg-brand-black/80 hover:bg-neutral-800 text-neutral-300 border border-brand-dark"
+                        }`}
+                      >
+                        <Bookmark
+                          className={`h-3.5 w-3.5 ${
+                            bookmarkedIds.has(scanResult.media_item.id) ? "fill-current" : ""
+                          }`}
+                        />
+                        <span>
+                          {bookmarkedIds.has(scanResult.media_item.id)
+                            ? "Saved in Library"
+                            : "Bookmark to Library"}
+                        </span>
+                      </button>
+                      <div className="flex items-center space-x-1 text-xs text-emerald-400 font-mono">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Classified Successfully</span>
+                      </div>
                     </div>
                   </div>
 
@@ -645,7 +820,325 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {activeTab !== "scan" && (
+          {/* Scan History View */}
+          {activeTab === "history" && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-brand-white">
+                    Scan History
+                  </h1>
+                  <p className="text-sm text-neutral-400 mt-1">
+                    Local audit log of all URL scans and discovered media sources stored in SQLite.
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={fetchScanHistory}
+                    disabled={scanHistoryLoading}
+                    className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${scanHistoryLoading ? "animate-spin" : ""}`} />
+                    <span>Refresh</span>
+                  </button>
+                  {scanHistory.length > 0 && (
+                    <button
+                      onClick={handleClearHistory}
+                      className="px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 rounded-md text-xs font-mono text-red-300 flex items-center space-x-1.5 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Clear History</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {scanHistoryLoading && scanHistory.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 text-neutral-400">
+                  <Loader2 className="h-6 w-6 animate-spin text-brand-red" />
+                  <span className="text-xs font-mono">Loading scan history from SQLite...</span>
+                </div>
+              ) : scanHistory.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 bg-brand-dark/20 border border-brand-dark/60 rounded-xl text-center p-8">
+                  <History className="h-10 w-10 text-neutral-400 stroke-1" />
+                  <h3 className="text-sm font-semibold text-brand-white">No Scan History</h3>
+                  <p className="text-xs text-neutral-400 max-w-sm">
+                    Scanned URLs and discovered media collections are automatically recorded here.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab("scan")}
+                    className="mt-2 px-4 py-2 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
+                  >
+                    Scan a URL
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {scanHistory.map((scan) => (
+                    <div
+                      key={scan.id}
+                      className="bg-brand-dark/30 border border-brand-dark rounded-xl p-4 flex flex-col space-y-3 hover:border-brand-dark/90 transition-all"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3 min-w-0">
+                          {/* Thumbnail / Category Icon */}
+                          <div className="w-12 h-12 rounded-lg bg-brand-black/90 border border-brand-dark overflow-hidden flex items-center justify-center shrink-0">
+                            {scan.preview_thumbnail ? (
+                              <img
+                                src={scan.preview_thumbnail}
+                                alt={scan.title_hint || "Preview"}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : scan.category === "direct_video" || scan.category === "channel" ? (
+                              <Film className="h-5 w-5 text-purple-400" />
+                            ) : (
+                              <ImageIcon className="h-5 w-5 text-emerald-400" />
+                            )}
+                          </div>
+
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-semibold text-sm text-brand-white truncate max-w-md">
+                                {scan.title_hint || scan.domain || scan.raw_url}
+                              </span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-brand-black/80 border border-brand-dark text-neutral-300 shrink-0">
+                                {scan.category.replace("_", " ")}
+                              </span>
+                              {scan.item_count > 0 && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/70 border border-sky-800/50 text-sky-300 shrink-0">
+                                  {scan.item_count} items
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-3 text-xs font-mono text-neutral-400">
+                              <span className="truncate max-w-sm">{scan.raw_url}</span>
+                              <span>·</span>
+                              <span>{new Date(scan.scanned_at).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          <button
+                            onClick={() => handleInspectScan(scan)}
+                            className="px-3 py-1.5 bg-brand-black/80 hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Inspect</span>
+                          </button>
+                          <button
+                            onClick={() => handleReScan(scan.raw_url)}
+                            className="px-3 py-1.5 bg-brand-red/90 hover:bg-brand-red rounded-md text-xs font-mono text-white flex items-center space-x-1.5 transition-colors shadow-sm shadow-brand-red/20"
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            <span>Rescan</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expanded items list if this scan is inspected */}
+                      {selectedScanDetail?.scan.id === scan.id && (
+                        <div className="border-t border-brand-dark/60 pt-3 space-y-3">
+                          <div className="flex items-center justify-between text-xs font-mono text-neutral-400">
+                            <span>Discovered Items in this Scan ({selectedScanDetail.items.length})</span>
+                            <button
+                              onClick={() => setSelectedScanDetail(null)}
+                              className="text-neutral-400 hover:text-white"
+                            >
+                              Close
+                            </button>
+                          </div>
+                          {selectedScanDetail.loading ? (
+                            <div className="py-6 flex items-center justify-center space-x-2 text-xs font-mono text-neutral-400">
+                              <Loader2 className="h-4 w-4 animate-spin text-brand-red" />
+                              <span>Loading scan items from database...</span>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-60 overflow-y-auto pr-1">
+                              {selectedScanDetail.items.map((it, idx) => (
+                                <div
+                                  key={it.id || idx}
+                                  className="bg-brand-black/80 border border-brand-dark/70 rounded-lg p-2 flex flex-col space-y-2 relative"
+                                >
+                                  <div className="w-full h-20 rounded bg-brand-black border border-brand-dark/50 overflow-hidden flex items-center justify-center relative">
+                                    {it.thumbnail_url ? (
+                                      <img
+                                        src={it.thumbnail_url}
+                                        alt={it.title || `Item ${idx + 1}`}
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : it.media_type === "video" ? (
+                                      <Film className="h-5 w-5 text-neutral-400" />
+                                    ) : (
+                                      <ImageIcon className="h-5 w-5 text-neutral-400" />
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleBookmark(it);
+                                      }}
+                                      className={`absolute top-1 right-1 p-1 rounded transition-all ${
+                                        bookmarkedIds.has(it.id)
+                                          ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
+                                          : "bg-black/60 text-neutral-300 hover:text-white"
+                                      }`}
+                                    >
+                                      <Bookmark className={`h-3 w-3 ${bookmarkedIds.has(it.id) ? "fill-current" : ""}`} />
+                                    </button>
+                                  </div>
+                                  <div className="text-[10px] font-mono truncate text-brand-white">
+                                    {it.title || `Item #${idx + 1}`}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Media Library & Saved Sources View */}
+          {(activeTab === "library" || activeTab === "saved") && (
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight text-brand-white">
+                    Media Library & Bookmarks
+                  </h1>
+                  <p className="text-sm text-neutral-400 mt-1">
+                    Saved media items stored in your local SQLite library. Preserved across sessions.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => fetchSavedMedia(savedMediaFilter)}
+                    disabled={savedMediaLoading}
+                    className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${savedMediaLoading ? "animate-spin" : ""}`} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter Pills */}
+              <div className="flex items-center space-x-2 border-b border-brand-dark/60 pb-3">
+                {(["all", "video", "image", "audio"] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setSavedMediaFilter(filter)}
+                    className={`px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider transition-all ${
+                      savedMediaFilter === filter
+                        ? "bg-brand-red text-white font-semibold shadow-sm shadow-brand-red/30"
+                        : "bg-brand-dark/40 text-neutral-400 hover:text-white hover:bg-brand-dark"
+                    }`}
+                  >
+                    {filter === "all" ? "All Media" : `${filter}s`}
+                  </button>
+                ))}
+                <span className="text-xs font-mono text-neutral-400 ml-auto">
+                  {savedMediaItems.length} {savedMediaItems.length === 1 ? "item" : "items"} stored
+                </span>
+              </div>
+
+              {savedMediaLoading && savedMediaItems.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 text-neutral-400">
+                  <Loader2 className="h-6 w-6 animate-spin text-brand-red" />
+                  <span className="text-xs font-mono">Loading saved library from SQLite...</span>
+                </div>
+              ) : savedMediaItems.length === 0 ? (
+                <div className="py-20 flex flex-col items-center justify-center space-y-3 bg-brand-dark/20 border border-brand-dark/60 rounded-xl text-center p-8">
+                  <FolderArchive className="h-10 w-10 text-neutral-400 stroke-1" />
+                  <h3 className="text-sm font-semibold text-brand-white">Your Media Library is Empty</h3>
+                  <p className="text-xs text-neutral-400 max-w-sm">
+                    Bookmark media items while scanning URLs to save them to your local collection.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab("scan")}
+                    className="mt-2 px-4 py-2 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
+                  >
+                    Discover Media in Scanner
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {savedMediaItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="bg-brand-dark/30 border border-brand-dark rounded-xl p-3.5 flex flex-col justify-between space-y-3 hover:border-brand-dark/90 transition-all group"
+                    >
+                      <div className="space-y-2.5">
+                        <div className="w-full h-36 rounded-lg bg-brand-black/90 border border-brand-dark overflow-hidden flex items-center justify-center relative">
+                          {item.thumbnail_url ? (
+                            <img
+                              src={item.thumbnail_url}
+                              alt={item.title || "Media preview"}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : item.media_type === "video" ? (
+                            <Film className="h-8 w-8 text-purple-400" />
+                          ) : (
+                            <ImageIcon className="h-8 w-8 text-emerald-400" />
+                          )}
+                          <span className="absolute top-2 left-2 px-2 py-0.5 bg-black/80 rounded text-[10px] font-mono uppercase text-neutral-200">
+                            {item.media_type}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleBookmark(item)}
+                            className="absolute top-2 right-2 p-1.5 rounded bg-brand-red text-white shadow-md shadow-brand-red/40 hover:bg-red-700 transition-colors"
+                            title="Remove from saved library"
+                          >
+                            <Bookmark className="h-3.5 w-3.5 fill-current" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-brand-white truncate font-sans" title={item.title || ""}>
+                            {item.title || "Untitled Item"}
+                          </h4>
+                          <p className="text-[11px] font-mono text-neutral-400 truncate">
+                            Author: <span className="text-neutral-200">{item.author || "Unknown"}</span>
+                          </p>
+                          <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 pt-1">
+                            <span>{formatBytes(item.filesize_bytes)}</span>
+                            <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-brand-dark/60 pt-2 flex items-center justify-between">
+                        <button
+                          onClick={() => handleReScan(item.source_url)}
+                          className="text-[11px] font-mono text-neutral-400 hover:text-white flex items-center space-x-1"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          <span>Source</span>
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSavedMedia(item.id)}
+                          className="text-[11px] font-mono text-red-400/80 hover:text-red-400 flex items-center space-x-1"
+                          title="Permanently delete from library"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab !== "scan" && activeTab !== "history" && activeTab !== "library" && activeTab !== "saved" && (
             <div className="max-w-2xl mx-auto text-center py-24 space-y-3">
               <h2 className="text-lg font-bold text-brand-white capitalize">
                 {activeTab.replace("-", " ")}

@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
-**Last Updated:** October 15, 2026  
-**Active Milestone:** Milestone 7 — First Real Video Extraction (yt-dlp)  
-**Overall Status:** Core Extraction & Scanning Phase  
+**Last Updated:** October 17, 2026  
+**Active Milestone:** Milestone 9 — Media Library & Local SQLite Persistence  
+**Overall Status:** Core Extraction, Local Persistence & Library Phase  
 
 ---
 
@@ -30,6 +30,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 6** | Direct URL Detection | **Completed** | Direct scanner (`scanners/direct.py`) inspecting MIME headers, content lengths, and filenames; SSRF defense (`utils/security.py`) blocking private IPs, loopbacks, and metadata endpoints; `classify_url` RPC handler exposed via IPC bridge (`window.api.classifyUrl`); interactive React scanning interface with quick presets and live media discovery preview card; 37 unit tests passing; smoke test asserting SSRF defense over IPC. |
 | **Milestone 7** | First Real Video Extraction (yt-dlp) | **Completed** | Integrated `yt-dlp>=2024.8.6` into isolated Python environment; created `extractors/video.py` for metadata and stream format extraction; normalized resolutions, containers, codecs, and stream merging requirements (`requires_merge`); mapped platform errors (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`); registered `extract_video` RPC and desktop IPC bridge; interactive React format stream chips and platform video badge; 41 unit tests passing; desktop smoke test passing. |
 | **Milestone 8** | First Real Gallery Extraction (gallery-dl) | **Completed** | Integrated `gallery-dl>=1.27.0` in isolated venv; created `extractors/gallery.py` using `DataJob` with `file=None` (zero stdio pollution); parsed and normalized multi-item albums into `MediaItem` collections; mapped domain errors (`PrivateMediaError`, `RateLimitError`, `MediaUnavailableError`, `UnsupportedSourceError`); unified `classify_url` and registered explicit `extract_gallery` RPC; typed `extractGallery` IPC method; rendered responsive multi-item album grids with sequential `#index` labels in React; 48 unit tests passing; desktop smoke test passing. |
+| **Milestone 9** | Media Library & Local SQLite Persistence | **Completed** | Implemented relational SQLite schema with migrations (`media_items`, `scan_history`, `scan_history_items`, `download_tasks`, `app_preferences`); built thread-safe connection manager (`db/connection.py`) with WAL mode, foreign keys, busy timeouts; built repository layer (`db/repository.py`); registered database RPC handlers with auto-persistence during URL classification; exposed typed desktop IPC bridge (`getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`); built interactive React Media Library (filter pills, deletion, bookmark toggle) and Scan History (audit log, item inspection drawer, 1-click rescan); 56 unit tests passing; desktop smoke test verified database round-trip over IPC. |
 
 ---
 
@@ -50,72 +51,48 @@ The system relies on a secure 3-tier desktop architecture:
   - Dedicated virtual environment isolated at `backend/.venv/` (zero root clutter).
   - `backend/pyproject.toml` adhering to PEP 621.
   - Core libraries installed: `httpx>=0.27.0`, `platformdirs>=4.2.0`, `pydantic>=2.7.0`, `pillow>=10.3.0`, `yt-dlp>=2024.8.6`, `gallery-dl>=1.27.0`.
-  - Developer tooling installed and passing: `pytest` (48 passed in 1.28s), `ruff` (all checks passed).
+  - Developer tooling installed and passing: `pytest` (56 passed in 1.04s), `ruff` (all checks passed).
 - **Frontend & Desktop Tooling:**
   - Modular `frontend/package.json` with React 18, Vite 5, Tailwind CSS 3, TypeScript 5, Electron 33.
   - Dependencies isolated in `frontend/node_modules/` (zero root clutter).
-  - Tooling configs: `frontend/tsconfig.json`, `frontend/vite.config.ts`, `frontend/tailwind.config.js`, `frontend/postcss.config.js`.
-  - Production build verified: `vite build` generated in 9.81s (`frontend/dist/`).
+  - Production build verified: `vite build` generated in 3.02s (`frontend/dist/`).
   - Strict type checking verified: `tsc --noEmit` cleanly passed.
 - **Desktop Shell & Security Architecture:**
   - Electron 33 main process in `desktop/main/index.ts` with strict security defaults (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, webSecurity, custom CSP header enforcement).
-  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`, `extractGallery`).
+  - Minimal, context-isolated preload script in `desktop/preload/index.ts` exposing typed `DesktopApi` (`ping`, `getSystemInfo`, `classifyUrl`, `extractVideo`, `extractGallery`, `getScanHistory`, `getScanItems`, `clearScanHistory`, `getSavedMedia`, `toggleSaveMedia`, `deleteMediaItem`).
   - Fast esbuild desktop compilation (`scripts/build-desktop.mjs`) generating `desktop/dist/main.cjs` and `desktop/dist/preload.cjs`.
   - Hot-reloading development orchestrator (`scripts/dev.mjs`).
-  - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, and graceful exit.
-- **Root Workspace Orchestration:**
-  - Root `package.json` acts as a zero-dependency workspace coordinator with scripts (`dev`, `start`, `test:desktop`, `dev:frontend`, `build:all`, `test:python`, `lint:python`).
-- **Python Engine Foundation (Milestone 4):**
-  - Package structure: `backend/src/xakumedia/` (`core/`, `exceptions/`, `models/`, `utils/`).
-  - Domain models: `MediaItem`, `MediaFormatInfo`, `DownloadTask`, `ProgressUpdate`, `ClassifiedUrl`, `AppConfig` implemented with Pydantic V2.
-  - Windows naming & anti-collision: `sanitize_username` trims illegal characters and boundary underscores; `format_sequential_filename` enforces `{username}_{vdo|img}_{001}.{ext}` with dynamic 4+ digit expansion; `get_next_sequence_number` scans disk so files are never overwritten.
-  - Path traversal security: `validate_destination_path` enforces target paths reside strictly inside authorized roots.
-- **Electron-to-Python IPC Communication (Milestone 5):**
-  - Protocol: JSON-RPC 2.0 models (`JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`) over standard I/O (stdin / stdout).
-  - Python Server: `backend/src/xakumedia/server/` with unbuffered line streaming (`server.loop`), method dispatcher (`server.dispatcher`), and clean EOF shutdown.
-  - Desktop Bridge: `PythonBridge` (`desktop/main/python-bridge.ts`) managing process spawning, readline stream processing, request ID correlation, timeout handling, and graceful SIGKILL fallback.
-  - Electron Preload: Secure typed bridge (`pingPython`, `getPythonSystemInfo`, `getPythonStatus`) exposed to renderer.
-  - React UI: Real-time diagnostics dashboard displaying Python PID, connection state, round-trip latency, and runtime directories.
-  - Automated Verification: End-to-end desktop smoke test verified handshake, ping/pong, and clean shutdown; 24 Python unit tests passing in 0.46s; 0 lint errors.
-- **Direct Media URL Detection & SSRF Defense (Milestone 6):**
-  - Direct Scanner: `scanners/direct.py` inspecting MIME types, headers (`Content-Type`, `Content-Length`, `Content-Disposition`), handling HEAD and Range GET fallbacks, and synthesizing `ClassifiedUrl` and `MediaItem` models.
-  - SSRF Protections: `utils/security.py` blocking loopback, link-local, private subnets, cloud metadata IPs, and local hostnames.
-  - IPC Integration: `classify_url` RPC method wired to `window.api.classifyUrl` in Electron preload bridge.
-  - React UI: Interactive scanning bar with quick presets, active loading states, error cards, and rich media discovery preview cards.
-  - Automated Verification: 37 unit tests passing in 0.43s; desktop smoke test asserting end-to-end SSRF defense over IPC.
-- **Video Platform Extraction via yt-dlp (Milestone 7):**
-  - Video Extractor: `extractors/video.py` executing `yt-dlp` in non-download metadata extraction mode (`extract_info(download=False)`).
-  - Format Normalization: `normalize_formats` filtering storyboards, sorting streams from highest resolution to lowest, and flagging adaptive video-only streams (`requires_merge: true`).
-  - Error Classification: `parse_yt_dlp_error` mapping raw error strings to domain exceptions (`PrivateMediaError`, `RateLimitError`, `DRMProtectedError`, `MediaUnavailableError`, `UnsupportedSourceError`).
-  - Unified Dispatcher: `classify_url` automatically falling back from direct file probe to `extract_video_info`; explicit `extract_video` RPC endpoint registered.
-  - Desktop Bridge & UI: `DesktopApi.extractVideo` exposed through Electron preload; React UI displays platform video badges and format stream chips (resolutions, container, merge requirements).
-  - Automated Verification: 41 unit tests passing in 1.22s; desktop smoke test passing; 0 ruff lint errors.
-- **Gallery & Collection Extraction via gallery-dl (Milestone 8):**
-  - Gallery Extractor: `extractors/gallery.py` executing `gallery-dl` in non-download metadata extraction mode using `DataJob(file=None)` to guarantee zero stdout emission and zero JSON-RPC stdio protocol interference.
-  - Multi-Item Normalization: Extracts post/album metadata, enumerates individual image/video assets, auto-titles items with sequential numbering (`"{title} - 1"`, `"{title} - 2"`), and maps container/resolution dimensions.
-  - Error Mapping: `parse_gallery_dl_error` mapping `NoExtractorError`, `AuthenticationError`, `NotFoundError`, and `HttpError` (429/404/403) to clean domain exceptions.
-  - Unified URL Classification Pipeline: `classify_url` hierarchically routes: 1. Direct media files -> 2. Gallery collections -> 3. Video platforms -> 4. UnsupportedSourceError.
-  - Desktop Bridge & React UI: `DesktopApi.extractGallery` exposed over IPC; interactive multi-item gallery grid rendering item cards, thumbnails, containers, and batch-readiness indicators.
-  - Automated Verification: 48 unit tests passing in 1.28s; desktop smoke test passing; 0 lint errors.
+  - End-to-end launch verification: `npm run test:desktop` verified window creation, DOM rendering, SSRF protection, database IPC query, and graceful exit.
+- **Media Library & Local SQLite Persistence (Milestone 9):**
+  - Database Schema & Migrations (`backend/src/xakumedia/db/schema.py`): Tables `schema_version`, `scan_history`, `media_items`, `scan_history_items`, `download_tasks`, `app_preferences` with foreign keys, cascading deletes, and self-healing column checks.
+  - Thread-Safe Connection Management (`backend/src/xakumedia/db/connection.py`): WAL mode (`PRAGMA journal_mode = WAL`), foreign keys enabled (`PRAGMA foreign_keys = ON`), busy timeout (5000ms), and atomic transaction context manager (`get_db_session`).
+  - Repository Layer (`backend/src/xakumedia/db/repository.py`): `MediaRepository` providing atomic scan persistence, URL classification history, deterministic preview thumbnail lookup, saved bookmarks CRUD, and task queue persistence.
+  - Automatic Scan Logging: `classify_url` RPC automatically logs every successful direct, video, or gallery scan event to SQLite.
+  - Preload & Main IPC Bridge: Added typed database methods in `desktop/shared/types.ts`, `desktop/preload/index.ts`, and `desktop/main/index.ts`.
+  - React Media Library & History UI (`frontend/src/App.tsx`):
+    - Media Library: Filter pills (All, Videos, Images, Audio), thumbnail cards, metadata, delete, and source re-scanning.
+    - Scan History: Full audit log, preview thumbnails, item count badges, inspect scan items drawer, and 1-click rescan.
+    - Bookmark Button: Discovered media cards (both single-item and multi-item gallery grids) feature live bookmark toggles updating SQLite instantly.
+  - Automated Verification: 8 database unit tests in `test_database.py` (56 total tests in suite passing in 1.04s); desktop smoke test verified end-to-end IPC database query (`get_scan_history`).
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Local database persistence (SQLite) for scanned history and saved collections is scheduled for Milestone 9.
-- Download queuing, streaming disk writes, and FFmpeg stream merging are scheduled for Milestones 10–13.
+- Download execution engine, chunked streaming disk writes, and pause/resume are scheduled for Milestone 10.
+- FFmpeg stream merging and format conversion are scheduled for Milestone 11.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 9 — Media Library & Local SQLite Persistence**
+**Next Milestone:** **Milestone 10 — Basic Download Manager Engine & Streaming**
 
 ### Acceptance Criteria:
-1. Establish SQLite schema with migrations (`media_items`, `scan_history`, `download_tasks`, `app_preferences`).
-2. Build local SQLite repository layer (`backend/src/xakumedia/db/`) supporting thread-safe connections, WAL mode, and parameterized queries.
-3. Maintain relational integrity: foreign keys, indexed lookups on `source_url`, `created_at`, `media_type`.
-4. Expose SQLite operations via JSON-RPC (`get_history`, `save_scan_result`, `get_saved_media`, `delete_history_item`).
-5. Connect desktop IPC and preload bridge (`window.api.getHistory`, `window.api.saveMediaItem`).
-6. Wire React Media Library and Scan History tabs to display live stored data from SQLite.
-7. Unit test schema migrations, concurrent access, and CRUD operations; verify with `npm run test` and `npm run lint`.
+1. Implement single-file HTTP/HTTPS download engine using streaming I/O (`httpx.stream`) without buffering entire files in RAM.
+2. Implement atomic file writes using temporary file naming (`.part` extension) and atomic rename upon completion.
+3. Emit structured real-time progress events (`bytes_downloaded`, `total_bytes`, `progress_percent`, `speed_bytes_sec`, `eta_seconds`) over JSON-RPC.
+4. Integrate download task state transitions in SQLite (`queued` -> `downloading` -> `completed` / `failed`).
+5. Wire Electron IPC event channel for live progress streaming from Python to renderer.
+6. Connect React Downloads tab to display live downloading progress bars, speed, ETA, and cancellation controls.
+7. Automated tests for chunk streaming, partial file handling, and network interruption recovery.

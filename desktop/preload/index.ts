@@ -1,11 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   ClassifyUrlResult,
+  ClearScanHistoryResult,
   DesktopApi,
+  DiscoveredMediaItem,
   PythonBridgeStatus,
   PythonPingResult,
   PythonSystemInfoResult,
+  SavedMediaResult,
+  ScanHistoryResult,
   SystemInfo,
+  ToggleSaveResult,
 } from "../shared/types";
 
 /**
@@ -41,6 +46,25 @@ const api: DesktopApi = {
   extractGallery: async (url: string): Promise<ClassifyUrlResult> => {
     return ipcRenderer.invoke("python:extractGallery", url);
   },
+  getScanHistory: async (limit?: number, offset?: number): Promise<ScanHistoryResult> => {
+    return ipcRenderer.invoke("python:getScanHistory", limit, offset);
+  },
+  getScanItems: async (scanId: string): Promise<{ items: DiscoveredMediaItem[] }> => {
+    return ipcRenderer.invoke("python:getScanItems", scanId);
+  },
+  clearScanHistory: async (scanId?: string): Promise<ClearScanHistoryResult> => {
+    return ipcRenderer.invoke("python:clearScanHistory", scanId);
+  },
+  getSavedMedia: async (mediaType?: string, limit?: number, offset?: number): Promise<SavedMediaResult> => {
+    return ipcRenderer.invoke("python:getSavedMedia", mediaType, limit, offset);
+  },
+  toggleSaveMedia: async (mediaId: string): Promise<ToggleSaveResult> => {
+    return ipcRenderer.invoke("python:toggleSaveMedia", mediaId);
+  },
+  deleteMediaItem: async (mediaId: string): Promise<{ id: string; deleted: boolean }> => {
+    return ipcRenderer.invoke("python:deleteMediaItem", mediaId);
+  },
 };
 
 contextBridge.exposeInMainWorld("api", api);
+

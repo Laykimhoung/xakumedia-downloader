@@ -75,6 +75,38 @@ function registerIpcHandlers(): void {
   ipcMain.handle("python:extractGallery", async (_event, url: string) => {
     return pythonBridge.sendRequest("extract_gallery", { url });
   });
+
+  // Local SQLite Media Library & Scan History IPC Handlers
+  ipcMain.handle("python:getScanHistory", async (_event, limit?: number, offset?: number) => {
+    return pythonBridge.sendRequest("get_scan_history", { limit, offset });
+  });
+
+  ipcMain.handle("python:getScanItems", async (_event, scanId: string) => {
+    return pythonBridge.sendRequest("get_scan_items", { scan_id: scanId });
+  });
+
+  ipcMain.handle("python:clearScanHistory", async (_event, scanId?: string) => {
+    return pythonBridge.sendRequest("clear_scan_history", { scan_id: scanId });
+  });
+
+  ipcMain.handle(
+    "python:getSavedMedia",
+    async (_event, mediaType?: string, limit?: number, offset?: number) => {
+      return pythonBridge.sendRequest("get_saved_media", {
+        media_type: mediaType,
+        limit,
+        offset,
+      });
+    }
+  );
+
+  ipcMain.handle("python:toggleSaveMedia", async (_event, mediaId: string) => {
+    return pythonBridge.sendRequest("toggle_save_media", { media_id: mediaId });
+  });
+
+  ipcMain.handle("python:deleteMediaItem", async (_event, mediaId: string) => {
+    return pythonBridge.sendRequest("delete_media_item", { media_id: mediaId });
+  });
 }
 
 function createWindow(): void {
@@ -137,6 +169,15 @@ function createWindow(): void {
           const msg = err instanceof Error ? err.message : String(err);
           console.log(`[smoke-test] SSRF IPC defense verified: ${msg}`);
         }
+
+        // Verify database query over IPC
+        const historyResponse = await pythonBridge.sendRequest<{
+          items: unknown[];
+          count: number;
+        }>("get_scan_history", { limit: 5 });
+        console.log(
+          `[smoke-test] Database scan history query verified over IPC: count=${historyResponse.count}`
+        );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);
         process.exit(1);
