@@ -293,6 +293,82 @@ class RpcDispatcher:
                 "count": len(tasks),
             }
 
+        def start_batch_download_handler(params: dict[str, Any]) -> dict[str, Any]:
+            items = params.get("items")
+            if not items or not isinstance(items, list):
+                raise TypeError("Parameter 'items' is required and must be a non-empty list.")
+
+            from ..downloader import default_download_manager
+
+            target_dir = params.get("target_dir")
+            tasks = default_download_manager.start_batch_download(
+                items=items,
+                target_dir=target_dir,
+            )
+            return {
+                "tasks": [t.model_dump(mode="json") for t in tasks],
+                "count": len(tasks),
+            }
+
+        def pause_download_handler(params: dict[str, Any]) -> dict[str, Any]:
+            task_id = params.get("task_id")
+            if not task_id or not isinstance(task_id, str):
+                raise TypeError("Parameter 'task_id' is required and must be a string.")
+
+            from ..downloader import default_download_manager
+
+            paused = default_download_manager.pause_download(task_id)
+            return {"task_id": task_id, "paused": paused}
+
+        def resume_download_handler(params: dict[str, Any]) -> dict[str, Any]:
+            task_id = params.get("task_id")
+            if not task_id or not isinstance(task_id, str):
+                raise TypeError("Parameter 'task_id' is required and must be a string.")
+
+            from ..downloader import default_download_manager
+
+            resumed = default_download_manager.resume_download(task_id)
+            return {"task_id": task_id, "resumed": resumed}
+
+        def pause_all_downloads_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            count = default_download_manager.pause_all()
+            return {"paused_count": count}
+
+        def resume_all_downloads_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            count = default_download_manager.resume_all()
+            return {"resumed_count": count}
+
+        def cancel_all_downloads_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            count = default_download_manager.cancel_all()
+            return {"cancelled_count": count}
+
+        def clear_completed_downloads_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            count = default_download_manager.clear_completed()
+            return {"cleared_count": count}
+
+        def set_download_concurrency_handler(params: dict[str, Any]) -> dict[str, Any]:
+            concurrency = params.get("concurrency")
+            if concurrency is None:
+                raise TypeError("Parameter 'concurrency' is required.")
+
+            from ..downloader import default_download_manager
+
+            actual = default_download_manager.set_concurrency(int(concurrency))
+            return {"max_concurrent": actual}
+
+        def get_download_queue_state_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            return default_download_manager.get_queue_state()
+
         # FFmpeg & Media Processing RPC Handlers
         def get_ffmpeg_info_handler(params: dict[str, Any]) -> dict[str, Any]:
             from ..processor.ffmpeg import get_ffmpeg_info
@@ -423,6 +499,15 @@ class RpcDispatcher:
         self.register("start_download", start_download_handler)
         self.register("cancel_download", cancel_download_handler)
         self.register("get_download_tasks", get_download_tasks_handler)
+        self.register("start_batch_download", start_batch_download_handler)
+        self.register("pause_download", pause_download_handler)
+        self.register("resume_download", resume_download_handler)
+        self.register("pause_all_downloads", pause_all_downloads_handler)
+        self.register("resume_all_downloads", resume_all_downloads_handler)
+        self.register("cancel_all_downloads", cancel_all_downloads_handler)
+        self.register("clear_completed_downloads", clear_completed_downloads_handler)
+        self.register("set_download_concurrency", set_download_concurrency_handler)
+        self.register("get_download_queue_state", get_download_queue_state_handler)
         self.register("get_ffmpeg_info", get_ffmpeg_info_handler)
         self.register("inspect_media", inspect_media_handler)
         self.register("merge_streams", merge_streams_handler)

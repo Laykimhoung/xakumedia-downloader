@@ -223,6 +223,62 @@ export interface GetDownloadTasksResult {
   count: number;
 }
 
+export interface BatchDownloadItemParam {
+  media_item: DiscoveredMediaItem;
+  selected_format?: MediaFormatInfoPayload | null;
+  destination_path?: string | null;
+}
+
+export interface StartBatchDownloadResult {
+  tasks: DownloadTaskRecord[];
+  count: number;
+}
+
+export interface PauseDownloadResult {
+  task_id: string;
+  paused: boolean;
+}
+
+export interface ResumeDownloadResult {
+  task_id: string;
+  resumed: boolean;
+}
+
+export interface PauseAllDownloadsResult {
+  paused_count: number;
+}
+
+export interface ResumeAllDownloadsResult {
+  resumed_count: number;
+}
+
+export interface CancelAllDownloadsResult {
+  cancelled_count: number;
+}
+
+export interface ClearCompletedDownloadsResult {
+  cleared_count: number;
+}
+
+export interface SetDownloadConcurrencyResult {
+  max_concurrent: number;
+}
+
+export interface DownloadQueueStateResult {
+  max_concurrent: number;
+  active_count: number;
+  pending_count: number;
+  counts: {
+    queued: number;
+    downloading: number;
+    merging: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+    paused: number;
+  };
+}
+
 export interface DesktopApi {
   /**
    * Simple connectivity probe between renderer and Electron main process.
@@ -325,6 +381,75 @@ export interface DesktopApi {
    */
   onDownloadCompleted: (
     callback: (task: DownloadTaskRecord) => void
+  ) => () => void;
+
+  /**
+   * Start bulk batch download for multiple media items.
+   */
+  startBatchDownload?: (
+    items: BatchDownloadItemParam[],
+    targetDir?: string
+  ) => Promise<StartBatchDownloadResult>;
+
+  /**
+   * Pause an active or queued download task.
+   */
+  pauseDownload?: (taskId: string) => Promise<PauseDownloadResult>;
+
+  /**
+   * Resume a paused download task.
+   */
+  resumeDownload?: (taskId: string) => Promise<ResumeDownloadResult>;
+
+  /**
+   * Pause all active and queued download tasks.
+   */
+  pauseAllDownloads?: () => Promise<PauseAllDownloadsResult>;
+
+  /**
+   * Resume all paused download tasks.
+   */
+  resumeAllDownloads?: () => Promise<ResumeAllDownloadsResult>;
+
+  /**
+   * Cancel all active and queued download tasks.
+   */
+  cancelAllDownloads?: () => Promise<CancelAllDownloadsResult>;
+
+  /**
+   * Clear completed, failed, and cancelled tasks from queue history.
+   */
+  clearCompletedDownloads?: () => Promise<ClearCompletedDownloadsResult>;
+
+  /**
+   * Set maximum active concurrent download workers (1-10).
+   */
+  setDownloadConcurrency?: (concurrency: number) => Promise<SetDownloadConcurrencyResult>;
+
+  /**
+   * Get queue worker metrics and status counts.
+   */
+  getDownloadQueueState?: () => Promise<DownloadQueueStateResult>;
+
+  /**
+   * Subscribe to task paused events.
+   */
+  onDownloadPaused?: (
+    callback: (data: { task_id: string; task?: DownloadTaskRecord }) => void
+  ) => () => void;
+
+  /**
+   * Subscribe to task resumed events.
+   */
+  onDownloadResumed?: (
+    callback: (data: { task_id: string; task?: DownloadTaskRecord }) => void
+  ) => () => void;
+
+  /**
+   * Subscribe to queue cleared events.
+   */
+  onQueueCleared?: (
+    callback: (data: { cleared_count: number }) => void
   ) => () => void;
 
   /**

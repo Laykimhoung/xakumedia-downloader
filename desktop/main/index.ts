@@ -162,6 +162,48 @@ function registerIpcHandlers(): void {
     return pythonBridge.sendRequest("get_download_tasks", { status, limit });
   });
 
+  ipcMain.handle(
+    "python:startBatchDownload",
+    async (_event, items: any[], targetDir?: string) => {
+      return pythonBridge.sendRequest("start_batch_download", {
+        items,
+        target_dir: targetDir,
+      });
+    }
+  );
+
+  ipcMain.handle("python:pauseDownload", async (_event, taskId: string) => {
+    return pythonBridge.sendRequest("pause_download", { task_id: taskId });
+  });
+
+  ipcMain.handle("python:resumeDownload", async (_event, taskId: string) => {
+    return pythonBridge.sendRequest("resume_download", { task_id: taskId });
+  });
+
+  ipcMain.handle("python:pauseAllDownloads", async () => {
+    return pythonBridge.sendRequest("pause_all_downloads");
+  });
+
+  ipcMain.handle("python:resumeAllDownloads", async () => {
+    return pythonBridge.sendRequest("resume_all_downloads");
+  });
+
+  ipcMain.handle("python:cancelAllDownloads", async () => {
+    return pythonBridge.sendRequest("cancel_all_downloads");
+  });
+
+  ipcMain.handle("python:clearCompletedDownloads", async () => {
+    return pythonBridge.sendRequest("clear_completed_downloads");
+  });
+
+  ipcMain.handle("python:setDownloadConcurrency", async (_event, concurrency: number) => {
+    return pythonBridge.sendRequest("set_download_concurrency", { concurrency });
+  });
+
+  ipcMain.handle("python:getDownloadQueueState", async () => {
+    return pythonBridge.sendRequest("get_download_queue_state");
+  });
+
   // Media Processor & FFmpeg IPC Handlers
   ipcMain.handle("python:getFFmpegInfo", async () => {
     return pythonBridge.sendRequest("get_ffmpeg_info");

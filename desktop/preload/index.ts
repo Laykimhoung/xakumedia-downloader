@@ -1,12 +1,16 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  BatchDownloadItemParam,
+  CancelAllDownloadsResult,
   CancelDownloadResult,
   ClassifyUrlResult,
+  ClearCompletedDownloadsResult,
   ClearScanHistoryResult,
   ConvertFormatResult,
   DeleteDownloadedMediaResult,
   DesktopApi,
   DiscoveredMediaItem,
+  DownloadQueueStateResult,
   DownloadTaskRecord,
   ExportMetadataResult,
   FFmpegInfoResult,
@@ -14,13 +18,19 @@ import type {
   InspectMediaResult,
   MediaFormatInfoPayload,
   MergeStreamsResult,
+  PauseAllDownloadsResult,
+  PauseDownloadResult,
   ProgressUpdatePayload,
   PythonBridgeStatus,
   PythonPingResult,
   PythonSystemInfoResult,
   QuerySavedMediaParams,
+  ResumeAllDownloadsResult,
+  ResumeDownloadResult,
   SavedMediaResult,
   ScanHistoryResult,
+  SetDownloadConcurrencyResult,
+  StartBatchDownloadResult,
   StartDownloadResult,
   SystemInfo,
   ThumbnailResult,
@@ -121,6 +131,74 @@ const api: DesktopApi = {
     ipcRenderer.on("download:completed", handler);
     return () => {
       ipcRenderer.removeListener("download:completed", handler);
+    };
+  },
+  startBatchDownload: async (
+    items: BatchDownloadItemParam[],
+    targetDir?: string
+  ): Promise<StartBatchDownloadResult> => {
+    return ipcRenderer.invoke("python:startBatchDownload", items, targetDir);
+  },
+  pauseDownload: async (taskId: string): Promise<PauseDownloadResult> => {
+    return ipcRenderer.invoke("python:pauseDownload", taskId);
+  },
+  resumeDownload: async (taskId: string): Promise<ResumeDownloadResult> => {
+    return ipcRenderer.invoke("python:resumeDownload", taskId);
+  },
+  pauseAllDownloads: async (): Promise<PauseAllDownloadsResult> => {
+    return ipcRenderer.invoke("python:pauseAllDownloads");
+  },
+  resumeAllDownloads: async (): Promise<ResumeAllDownloadsResult> => {
+    return ipcRenderer.invoke("python:resumeAllDownloads");
+  },
+  cancelAllDownloads: async (): Promise<CancelAllDownloadsResult> => {
+    return ipcRenderer.invoke("python:cancelAllDownloads");
+  },
+  clearCompletedDownloads: async (): Promise<ClearCompletedDownloadsResult> => {
+    return ipcRenderer.invoke("python:clearCompletedDownloads");
+  },
+  setDownloadConcurrency: async (
+    concurrency: number
+  ): Promise<SetDownloadConcurrencyResult> => {
+    return ipcRenderer.invoke("python:setDownloadConcurrency", concurrency);
+  },
+  getDownloadQueueState: async (): Promise<DownloadQueueStateResult> => {
+    return ipcRenderer.invoke("python:getDownloadQueueState");
+  },
+  onDownloadPaused: (
+    callback: (data: { task_id: string; task?: DownloadTaskRecord }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { task_id: string; task?: DownloadTaskRecord }
+    ) => callback(data);
+    ipcRenderer.on("download:paused", handler);
+    return () => {
+      ipcRenderer.removeListener("download:paused", handler);
+    };
+  },
+  onDownloadResumed: (
+    callback: (data: { task_id: string; task?: DownloadTaskRecord }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { task_id: string; task?: DownloadTaskRecord }
+    ) => callback(data);
+    ipcRenderer.on("download:resumed", handler);
+    return () => {
+      ipcRenderer.removeListener("download:resumed", handler);
+    };
+  },
+  onQueueCleared: (
+    callback: (data: { cleared_count: number }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { cleared_count: number }
+    ) => callback(data);
+    ipcRenderer.on("queue_cleared", handler);
+    return () => {
+      ipcRenderer.removeListener("queue_cleared", handler);
     };
   },
   openPath: async (targetPath: string): Promise<void> => {

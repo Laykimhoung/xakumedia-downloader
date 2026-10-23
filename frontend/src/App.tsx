@@ -34,10 +34,15 @@ import {
   Filter,
   ArrowUpDown,
   Music,
+  Pause,
+  CheckSquare,
+  Square,
+  SlidersHorizontal,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
   DiscoveredMediaItem,
+  DownloadQueueStateResult,
   DownloadTaskRecord,
   FFmpegInfoResult,
   MediaFormatInfoPayload,
@@ -133,9 +138,13 @@ export const App: React.FC = () => {
   // Download Manager State
   const [downloadTasks, setDownloadTasks] = useState<DownloadTaskRecord[]>([]);
   const [downloadTasksLoading, setDownloadTasksLoading] = useState<boolean>(false);
-  const [downloadFilter, setDownloadFilter] = useState<"all" | "active" | "completed" | "failed">("all");
+  const [downloadFilter, setDownloadFilter] = useState<"all" | "active" | "paused" | "completed" | "failed">("all");
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [activeTaskCount, setActiveTaskCount] = useState<number>(0);
+  const [concurrency, setConcurrency] = useState<number>(3);
+  const [queueState, setQueueState] = useState<DownloadQueueStateResult | null>(null);
+  const [batchDownloading, setBatchDownloading] = useState<boolean>(false);
+  const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set());
 
   const formatBytes = (bytes?: number | null): string => {
     if (!bytes) return "Unknown size";
@@ -452,8 +461,134 @@ export const App: React.FC = () => {
       setDownloadTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, status: "cancelled" } : t))
       );
+      fetchQueueState();
     } catch (err) {
       console.error("Failed to cancel download:", err);
+    }
+  };
+
+  const fetchQueueState = async () => {
+    if (!window.api?.getDownloadQueueState) return;
+    try {
+      const res = await window.api.getDownloadQueueState();
+      setQueueState(res);
+      setConcurrency(res.max_concurrent);
+    } catch (err) {
+      console.warn("Failed to fetch queue state:", err);
+    }
+  };
+
+  const handleStartBatchDownload = async (
+    items: DiscoveredMediaItem[],
+    targetDir?: string
+  ) => {
+    if (!window.api?.startBatchDownload || items.length === 0) return;
+    setBatchDownloading(true);
+    try {
+      const payload = items.map((item) => ({
+        media_item: item,
+        selected_format: item.available_formats?.[0] || null,
+      }));
+      const res = await window.api.startBatchDownload(payload, targetDir);
+      setDownloadTasks((prev) => {
+        const newIds = new Set(res.tasks.map((t) => t.id));
+        const kept = prev.filter((t) => !newIds.has(t.id));
+        return [...res.tasks, ...kept];
+      });
+      fetchQueueState();
+      setActiveTab("downloads");
+    } catch (err) {
+      console.error("Failed to start batch download:", err);
+    } finally {
+      setBatchDownloading(false);
+    }
+  };
+
+  const handlePauseDownload = async (taskId: string) => {
+    if (!window.api?.pauseDownload) return;
+    try {
+      await window.api.pauseDownload(taskId);
+      setDownloadTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, status: "paused" } : t))
+      );
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to pause download:", err);
+    }
+  };
+
+  const handleResumeDownload = async (taskId: string) => {
+    if (!window.api?.resumeDownload) return;
+    try {
+      await window.api.resumeDownload(taskId);
+      setDownloadTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, status: "queued" } : t))
+      );
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to resume download:", err);
+    }
+  };
+
+  const handlePauseAll = async () => {
+    if (!window.api?.pauseAllDownloads) return;
+    try {
+      await window.api.pauseAllDownloads();
+      fetchDownloadTasks();
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to pause all downloads:", err);
+    }
+  };
+
+  const handleResumeAll = async () => {
+    if (!window.api?.resumeAllDownloads) return;
+    try {
+      await window.api.resumeAllDownloads();
+      fetchDownloadTasks();
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to resume all downloads:", err);
+    }
+  };
+
+  const handleCancelAll = async () => {
+    if (!window.api?.cancelAllDownloads) return;
+    try {
+      await window.api.cancelAllDownloads();
+      fetchDownloadTasks();
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to cancel all downloads:", err);
+    }
+  };
+
+  const handleClearCompleted = async () => {
+    if (!window.api?.clearCompletedDownloads) return;
+    try {
+      await window.api.clearCompletedDownloads();
+      setDownloadTasks((prev) =>
+        prev.filter(
+          (t) =>
+            t.status !== "completed" &&
+            t.status !== "failed" &&
+            t.status !== "cancelled"
+        )
+      );
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to clear completed downloads:", err);
+    }
+  };
+
+  const handleSetConcurrency = async (newVal: number) => {
+    if (!window.api?.setDownloadConcurrency) return;
+    try {
+      const res = await window.api.setDownloadConcurrency(newVal);
+      setConcurrency(res.max_concurrent);
+      fetchQueueState();
+    } catch (err) {
+      console.error("Failed to set concurrency:", err);
     }
   };
 
@@ -583,11 +718,56 @@ export const App: React.FC = () => {
       });
     });
 
+    const unsubPaused = window.api.onDownloadPaused?.((data) => {
+      setDownloadTasks((prev) =>
+        prev.map((t) => (t.id === data.task_id ? { ...t, status: "paused" } : t))
+      );
+      fetchQueueState();
+    });
+
+    const unsubResumed = window.api.onDownloadResumed?.((data) => {
+      setDownloadTasks((prev) =>
+        prev.map((t) => (t.id === data.task_id ? { ...t, status: "queued" } : t))
+      );
+      fetchQueueState();
+    });
+
+    const unsubCleared = window.api.onQueueCleared?.(() => {
+      setDownloadTasks((prev) =>
+        prev.filter(
+          (t) =>
+            t.status !== "completed" &&
+            t.status !== "failed" &&
+            t.status !== "cancelled"
+        )
+      );
+      fetchQueueState();
+    });
+
     return () => {
       unsubProgress?.();
       unsubCompleted?.();
+      unsubPaused?.();
+      unsubResumed?.();
+      unsubCleared?.();
     };
   }, []);
+
+  // Sync gallery selection when scanResult changes
+  useEffect(() => {
+    if (scanResult?.media_items && scanResult.media_items.length > 0) {
+      setSelectedGalleryIds(new Set(scanResult.media_items.map((i) => i.id)));
+    } else {
+      setSelectedGalleryIds(new Set());
+    }
+  }, [scanResult]);
+
+  // Fetch queue state when switching to downloads tab
+  useEffect(() => {
+    if (activeTab === "downloads") {
+      fetchQueueState();
+    }
+  }, [activeTab]);
 
   // Keyboard shortcut listener for Modals & Lightbox
   useEffect(() => {
@@ -926,105 +1106,212 @@ export const App: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center space-x-1 text-xs text-emerald-400 font-mono">
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span>Collection Discovered</span>
+                    <div className="flex items-center space-x-2">
+                      <span className="px-2 py-0.5 rounded bg-brand-dark/80 border border-brand-dark text-xs font-mono text-neutral-300">
+                        <span className="text-brand-red font-semibold">{selectedGalleryIds.size}</span> / {scanResult.media_items.length} Selected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const selected = scanResult.media_items!.filter((i) =>
+                            selectedGalleryIds.has(i.id)
+                          );
+                          handleStartBatchDownload(selected);
+                        }}
+                        disabled={batchDownloading || selectedGalleryIds.size === 0}
+                        className="px-3 py-1.5 bg-brand-red hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-mono font-semibold rounded-md flex items-center space-x-1.5 transition-all shadow-sm shadow-brand-red/30"
+                      >
+                        {batchDownloading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5" />
+                        )}
+                        <span>
+                          {batchDownloading
+                            ? "Queuing..."
+                            : `Download Selected (${selectedGalleryIds.size})`}
+                        </span>
+                      </button>
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <h3 className="text-base font-bold text-brand-white font-sans truncate">
-                      {scanResult.classified_url.title_hint ||
-                        scanResult.media_items[0]?.title ||
-                        "Gallery Collection"}
-                    </h3>
-                    <p className="text-xs font-mono text-neutral-400">
-                      Author:{" "}
-                      <span className="text-neutral-200">
-                        {scanResult.classified_url.author_hint || "gallery"}
-                      </span>{" "}
-                      · Source: {scanResult.classified_url.domain}
-                    </p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <h3 className="text-base font-bold text-brand-white font-sans truncate">
+                        {scanResult.classified_url.title_hint ||
+                          scanResult.media_items[0]?.title ||
+                          "Gallery Collection"}
+                      </h3>
+                      <p className="text-xs font-mono text-neutral-400">
+                        Author:{" "}
+                        <span className="text-neutral-200">
+                          {scanResult.classified_url.author_hint || "gallery"}
+                        </span>{" "}
+                        · Source: {scanResult.classified_url.domain}
+                      </p>
+                    </div>
+
+                    {/* Selection Controls */}
+                    <div className="flex items-center space-x-1.5 self-start sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedGalleryIds(
+                            new Set(scanResult.media_items!.map((i) => i.id))
+                          )
+                        }
+                        className="px-2 py-1 bg-brand-dark/70 hover:bg-neutral-800 border border-brand-dark rounded text-[11px] font-mono text-neutral-300 transition-colors"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedGalleryIds(new Set())}
+                        className="px-2 py-1 bg-brand-dark/70 hover:bg-neutral-800 border border-brand-dark rounded text-[11px] font-mono text-neutral-300 transition-colors"
+                      >
+                        Deselect All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = new Set<string>();
+                          scanResult.media_items!.forEach((i) => {
+                            if (!selectedGalleryIds.has(i.id)) next.add(i.id);
+                          });
+                          setSelectedGalleryIds(next);
+                        }}
+                        className="px-2 py-1 bg-brand-dark/70 hover:bg-neutral-800 border border-brand-dark rounded text-[11px] font-mono text-neutral-300 transition-colors"
+                      >
+                        Invert
+                      </button>
+                    </div>
                   </div>
 
                   {/* Grid of gallery items */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto pr-1">
-                    {scanResult.media_items.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="bg-brand-black/70 border border-brand-dark rounded-lg p-2 flex flex-col space-y-2 hover:border-brand-red/50 transition-colors"
-                      >
-                        <div className="w-full h-24 rounded bg-brand-black/90 border border-brand-dark/60 overflow-hidden flex items-center justify-center relative">
-                          {item.thumbnail_url ? (
-                            <img
-                              src={item.thumbnail_url}
-                              alt={item.title || `Item ${idx + 1}`}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : item.media_type === "video" ? (
-                            <Film className="h-6 w-6 text-neutral-400" />
-                          ) : (
-                            <ImageIcon className="h-6 w-6 text-neutral-400" />
-                          )}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleBookmark(item);
-                            }}
-                            className={`absolute top-1 left-1 p-1 rounded-md transition-all ${
-                              bookmarkedIds.has(item.id)
-                                ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
-                                : "bg-black/60 text-neutral-300 hover:text-white"
-                            }`}
-                            title={bookmarkedIds.has(item.id) ? "Saved in Library" : "Bookmark to Library"}
-                          >
-                            <Bookmark className={`h-3 w-3 ${bookmarkedIds.has(item.id) ? "fill-current" : ""}`} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenPreview(item);
-                            }}
-                            className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/90 text-neutral-300 hover:text-white transition-all shadow-sm"
-                            title="Preview item"
-                          >
-                            <Eye className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartDownload(item);
-                            }}
-                            disabled={downloadingIds.has(item.id)}
-                            className="absolute bottom-1 left-1 p-1 rounded-md bg-black/70 hover:bg-brand-red text-neutral-300 hover:text-white transition-all shadow-sm"
-                            title="Download this item"
-                          >
-                            {downloadingIds.has(item.id) ? (
-                              <Loader2 className="h-3 w-3 animate-spin text-white" />
+                    {scanResult.media_items.map((item, idx) => {
+                      const isSelected = selectedGalleryIds.has(item.id);
+                      return (
+                        <div
+                          key={item.id || idx}
+                          onClick={() => {
+                            setSelectedGalleryIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            });
+                          }}
+                          className={`rounded-lg p-2 flex flex-col space-y-2 cursor-pointer transition-all ${
+                            isSelected
+                              ? "bg-brand-red/10 border border-brand-red/80 ring-1 ring-brand-red/40"
+                              : "bg-brand-black/70 border border-brand-dark hover:border-brand-dark/90"
+                          }`}
+                        >
+                          <div className="w-full h-24 rounded bg-brand-black/90 border border-brand-dark/60 overflow-hidden flex items-center justify-center relative">
+                            {item.thumbnail_url ? (
+                              <img
+                                src={item.thumbnail_url}
+                                alt={item.title || `Item ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : item.media_type === "video" ? (
+                              <Film className="h-6 w-6 text-neutral-400" />
                             ) : (
-                              <Download className="h-3 w-3" />
+                              <ImageIcon className="h-6 w-6 text-neutral-400" />
                             )}
-                          </button>
-                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
-                            #{idx + 1}
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono space-y-0.5">
-                          <p className="truncate text-brand-white font-medium">
-                            {item.title || `Item ${idx + 1}`}
-                          </p>
-                          <div className="flex items-center justify-between text-[10px] text-neutral-400">
-                            <span className="uppercase">
-                              {item.available_formats[0]?.container || "IMG"}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedGalleryIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(item.id)) next.delete(item.id);
+                                  else next.add(item.id);
+                                  return next;
+                                });
+                              }}
+                              className={`absolute top-1 left-1 p-1 rounded-md transition-all ${
+                                isSelected
+                                  ? "bg-brand-red text-white"
+                                  : "bg-black/60 text-neutral-400 hover:text-white"
+                              }`}
+                              title={isSelected ? "Deselect item" : "Select item"}
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="h-3 w-3" />
+                              ) : (
+                                <Square className="h-3 w-3" />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleBookmark(item);
+                              }}
+                              className={`absolute top-1 right-8 p-1 rounded-md transition-all ${
+                                bookmarkedIds.has(item.id)
+                                  ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
+                                  : "bg-black/60 text-neutral-300 hover:text-white"
+                              }`}
+                              title={
+                                bookmarkedIds.has(item.id)
+                                  ? "Saved in Library"
+                                  : "Bookmark to Library"
+                              }
+                            >
+                              <Bookmark
+                                className={`h-3 w-3 ${
+                                  bookmarkedIds.has(item.id) ? "fill-current" : ""
+                                }`}
+                              />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenPreview(item);
+                              }}
+                              className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/90 text-neutral-300 hover:text-white transition-all shadow-sm"
+                              title="Preview item"
+                            >
+                              <Eye className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartDownload(item);
+                              }}
+                              disabled={downloadingIds.has(item.id)}
+                              className="absolute bottom-1 left-1 p-1 rounded-md bg-black/70 hover:bg-brand-red text-neutral-300 hover:text-white transition-all shadow-sm"
+                              title="Download single item"
+                            >
+                              {downloadingIds.has(item.id) ? (
+                                <Loader2 className="h-3 w-3 animate-spin text-white" />
+                              ) : (
+                                <Download className="h-3 w-3" />
+                              )}
+                            </button>
+                            <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
+                              #{idx + 1}
                             </span>
-                            <span>{formatBytes(item.filesize_bytes)}</span>
+                          </div>
+                          <div className="text-[11px] font-mono space-y-0.5">
+                            <p className="truncate text-brand-white font-medium">
+                              {item.title || `Item ${idx + 1}`}
+                            </p>
+                            <div className="flex items-center justify-between text-[10px] text-neutral-400">
+                              <span className="uppercase">
+                                {item.available_formats[0]?.container || "IMG"}
+                              </span>
+                              <span>{formatBytes(item.filesize_bytes)}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <div className="flex items-center justify-between border-t border-brand-dark/50 pt-2 text-[11px] font-mono">
@@ -1032,7 +1319,7 @@ export const App: React.FC = () => {
                       Total {scanResult.media_items.length} items enumerated without downloading
                     </span>
                     <span className="text-emerald-400 font-medium">
-                      Ready for Batch Queue (Milestone 13)
+                      Multi-item batch queue active
                     </span>
                   </div>
                 </div>
@@ -1846,7 +2133,68 @@ export const App: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Concurrency Selector */}
+                  <div className="flex items-center space-x-1.5 bg-brand-dark/70 border border-brand-dark px-2.5 py-1 rounded-md text-xs font-mono">
+                    <SlidersHorizontal className="h-3.5 w-3.5 text-neutral-400" />
+                    <span className="text-neutral-400">Slots:</span>
+                    {[1, 2, 3, 5, 8].map((num) => (
+                      <button
+                        key={num}
+                        onClick={() => handleSetConcurrency(num)}
+                        className={`px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+                          concurrency === num
+                            ? "bg-brand-red text-white font-bold"
+                            : "text-neutral-400 hover:text-white"
+                        }`}
+                        title={`Set max concurrent active downloads to ${num}`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                    {queueState && (
+                      <span className="text-[10px] text-neutral-400 border-l border-brand-dark/80 pl-1.5">
+                        {queueState.active_count} active / {queueState.pending_count} queued
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Batch Global Actions */}
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={handlePauseAll}
+                      className="px-2.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-blue-300 flex items-center space-x-1 transition-colors"
+                      title="Pause all running & queued downloads"
+                    >
+                      <Pause className="h-3 w-3" />
+                      <span>Pause All</span>
+                    </button>
+                    <button
+                      onClick={handleResumeAll}
+                      className="px-2.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-emerald-300 flex items-center space-x-1 transition-colors"
+                      title="Resume all paused downloads"
+                    >
+                      <Play className="h-3 w-3" />
+                      <span>Resume All</span>
+                    </button>
+                    <button
+                      onClick={handleCancelAll}
+                      className="px-2.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-amber-300 flex items-center space-x-1 transition-colors"
+                      title="Cancel all active & queued downloads"
+                    >
+                      <XCircle className="h-3 w-3" />
+                      <span>Cancel All</span>
+                    </button>
+                    <button
+                      onClick={handleClearCompleted}
+                      className="px-2.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-400 hover:text-red-300 flex items-center space-x-1 transition-colors"
+                      title="Clear completed, failed & cancelled tasks from list"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      <span>Clear Finished</span>
+                    </button>
+                  </div>
+
                   {pythonStatus?.info?.download_dir && (
                     <button
                       onClick={() => handleOpenFileOrFolder(pythonStatus.info?.download_dir)}
@@ -1854,16 +2202,18 @@ export const App: React.FC = () => {
                       title={`Open ${pythonStatus.info.download_dir}`}
                     >
                       <FolderOpen className="h-3.5 w-3.5" />
-                      <span>Open Folder</span>
+                      <span>Folder</span>
                     </button>
                   )}
                   <button
-                    onClick={fetchDownloadTasks}
+                    onClick={() => {
+                      fetchDownloadTasks();
+                      fetchQueueState();
+                    }}
                     disabled={downloadTasksLoading}
                     className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${downloadTasksLoading ? "animate-spin" : ""}`} />
-                    <span>Refresh</span>
                   </button>
                 </div>
               </div>
@@ -1881,6 +2231,11 @@ export const App: React.FC = () => {
                         t.status === "queued" ||
                         t.status === "merging"
                     ).length,
+                  },
+                  {
+                    id: "paused",
+                    label: "Paused",
+                    count: downloadTasks.filter((t) => t.status === "paused").length,
                   },
                   {
                     id: "completed",
@@ -1924,6 +2279,9 @@ export const App: React.FC = () => {
                       t.status === "queued" ||
                       t.status === "merging"
                     );
+                  }
+                  if (downloadFilter === "paused") {
+                    return t.status === "paused";
                   }
                   if (downloadFilter === "completed") {
                     return t.status === "completed";
@@ -2030,6 +2388,12 @@ export const App: React.FC = () => {
                                   <span>{task.status}</span>
                                 </span>
                               )}
+                              {task.status === "paused" && (
+                                <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-blue-950/70 border border-blue-700/80 text-blue-300 flex items-center space-x-1.5 shadow-sm shadow-blue-900/40">
+                                  <Pause className="h-3.5 w-3.5 text-blue-400" />
+                                  <span>Paused</span>
+                                </span>
+                              )}
                               {isCompleted && (
                                 <span className="px-2.5 py-1 rounded-md text-xs font-mono uppercase bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 flex items-center space-x-1.5">
                                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
@@ -2051,14 +2415,44 @@ export const App: React.FC = () => {
 
                               {/* Action Buttons */}
                               {isRunning && (
-                                <button
-                                  onClick={() => handleCancelDownload(task.id)}
-                                  className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-red-300 flex items-center space-x-1 transition-colors"
-                                  title="Cancel active download"
-                                >
-                                  <XCircle className="h-3.5 w-3.5" />
-                                  <span>Cancel</span>
-                                </button>
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    onClick={() => handlePauseDownload(task.id)}
+                                    className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-blue-300 flex items-center space-x-1 transition-colors"
+                                    title="Pause active download"
+                                  >
+                                    <Pause className="h-3.5 w-3.5" />
+                                    <span>Pause</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDownload(task.id)}
+                                    className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-red-300 flex items-center space-x-1 transition-colors"
+                                    title="Cancel active download"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    <span>Cancel</span>
+                                  </button>
+                                </div>
+                              )}
+                              {task.status === "paused" && (
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    onClick={() => handleResumeDownload(task.id)}
+                                    className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-emerald-300 flex items-center space-x-1 transition-colors"
+                                    title="Resume paused download"
+                                  >
+                                    <Play className="h-3.5 w-3.5" />
+                                    <span>Resume</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleCancelDownload(task.id)}
+                                    className="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 rounded-md text-xs font-mono text-red-300 flex items-center space-x-1 transition-colors"
+                                    title="Cancel paused download"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    <span>Cancel</span>
+                                  </button>
+                                </div>
                               )}
                               {isCompleted && task.destination_path && (
                                 <div className="flex items-center space-x-1.5">

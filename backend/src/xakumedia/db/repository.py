@@ -509,6 +509,84 @@ class MediaRepository:
         finally:
             conn.close()
 
+    def get_download_task(self, task_id: str) -> DownloadTask | None:
+        """Query a single download task by ID joined with its media item."""
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT t.*, m.*, t.id AS task_id, m.id AS m_id
+                FROM download_tasks t
+                JOIN media_items m ON t.media_id = m.id
+                WHERE t.id = ?
+            """
+            cursor.execute(query, (task_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            media_item = self._row_to_media_item(row)
+            fmt = (
+                MediaFormatInfo.model_validate(json.loads(row["selected_format_json"]))
+                if row["selected_format_json"]
+                else None
+            )
+            return DownloadTask(
+                id=row["task_id"],
+                media_item=media_item,
+                status=TaskStatus(row["status"]),
+                selected_format=fmt,
+                destination_path=Path(row["destination_path"])
+                if row["destination_path"]
+                else None,
+                temp_path=Path(row["temp_path"]) if row["temp_path"] else None,
+                bytes_downloaded=row["bytes_downloaded"],
+                total_bytes=row["total_bytes"],
+                progress_percent=row["progress_percent"],
+                error_message=row["error_message"],
+                retry_count=row["retry_count"],
+                created_at=datetime.fromisoformat(row["created_at"])
+                if row["created_at"]
+                else datetime.now(UTC),
+                completed_at=datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None,
+                updated_at=datetime.fromisoformat(row["updated_at"])
+                if row["updated_at"]
+                else datetime.now(UTC),
+            )
+        finally:
+            conn.close()
+
+    def clear_completed_tasks(self) -> int:
+        """Remove all completed, failed, and cancelled download tasks from the database."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM download_tasks WHERE status IN ('completed', 'failed', 'cancelled')"
+            )
+            return cursor.rowcount
+
+    def get_queue_counts(self) -> dict[str, int]:
+        """Get aggregate counts of tasks grouped by status."""
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT status, COUNT(*) AS cnt FROM download_tasks GROUP BY status")
+            rows = cursor.fetchall()
+            counts = {
+                "queued": 0,
+                "downloading": 0,
+                "merging": 0,
+                "completed": 0,
+                "failed": 0,
+                "cancelled": 0,
+                "paused": 0,
+            }
+            for r in rows:
+                counts[r["status"]] = r["cnt"]
+            return counts
+        finally:
+            conn.close()
+
 
 # Default singleton instance bound to default_config.database_path
 default_repository = MediaRepository()

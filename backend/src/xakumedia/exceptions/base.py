@@ -116,6 +116,15 @@ class DownloadCancelledError(DownloadError):
         super().__init__(message, code="DOWNLOAD_CANCELLED", details=details)
 
 
+class DownloadPausedError(DownloadError):
+    """Raised when a download task is explicitly paused by the user."""
+
+    def __init__(
+        self, message: str = "Download paused by user", details: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(message, code="DOWNLOAD_PAUSED", details=details)
+
+
 class FileIntegrityError(DownloadError):
     """Raised when a downloaded file fails size or format integrity verification."""
 

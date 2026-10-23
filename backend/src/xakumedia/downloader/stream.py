@@ -15,6 +15,7 @@ from ..exceptions.base import (
     DiskSpaceError,
     DownloadCancelledError,
     DownloadError,
+    DownloadPausedError,
     MediaUnavailableError,
     NetworkTimeoutError,
     PrivateMediaError,
@@ -36,24 +37,14 @@ def download_stream(
     task_id: str,
     progress_callback: Callable[[ProgressUpdate], None] | None = None,
     cancel_event: threading.Event | None = None,
+    pause_event: threading.Event | None = None,
     headers: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
     allowed_root: Path | None = None,
 ) -> Path:
     """Download a remote media stream to disk with .part staging, atomic rename, and telemetry.
 
-    Args:
-        url: Remote media stream or direct file URL.
-        destination_path: Final target path on local filesystem.
-        task_id: Unique task identifier for correlation.
-        progress_callback: Optional callable receiving ProgressUpdate instances.
-        cancel_event: Optional threading.Event to signal immediate cancellation.
-        headers: Optional HTTP headers (User-Agent, Referer, Cookies).
-        timeout_seconds: Socket timeout limit in seconds.
-        allowed_root: Optional authorized directory root for path traversal check.
-
-    Returns:
-        The final verified destination Path.
+    Supports chunked HTTP range resumption if an existing .part file is present.
     """
     # 1. Security validations
     validate_url_security(url)
@@ -62,15 +53,20 @@ def download_stream(
     # 2. Prepare staging file
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = destination_path.with_suffix(destination_path.suffix + ".part")
+
+    existing_bytes = 0
     if temp_path.exists():
         try:
-            temp_path.unlink()
+            existing_bytes = temp_path.stat().st_size
         except OSError:
-            pass
+            existing_bytes = 0
 
     req_headers = {"User-Agent": "XakuMedia/0.1.0"}
     if headers:
         req_headers.update(headers)
+
+    if existing_bytes > 0:
+        req_headers["Range"] = f"bytes={existing_bytes}-"
 
     timeout = httpx.Timeout(timeout_seconds or default_config.request_timeout_seconds)
 
@@ -89,27 +85,41 @@ def download_stream(
                     raise RateLimitError(
                         f"Rate limited by server ({response.status_code}): {response.reason_phrase}"
                     )
+                if response.status_code == 416:
+                    # Range not satisfiable (file might already be complete)
+                    if existing_bytes > 0:
+                        shutil.move(str(temp_path), str(destination_path))
+                        return destination_path
+                    raise DownloadError(f"HTTP error 416: {response.reason_phrase}")
                 if response.is_error:
                     raise DownloadError(
                         f"HTTP error {response.status_code}: {response.reason_phrase}"
                     )
 
-                content_length = response.headers.get("content-length")
-                total_bytes = (
-                    int(content_length)
-                    if content_length and content_length.isdigit()
-                    else None
-                )
+                is_resuming = response.status_code == 206
+                write_mode = "ab" if is_resuming else "wb"
+                bytes_downloaded = existing_bytes if is_resuming else 0
 
-                bytes_downloaded = 0
+                content_length = response.headers.get("content-length")
+                content_range = response.headers.get("content-range")
+                total_bytes = None
+                if content_range and "/" in content_range:
+                    range_total = content_range.split("/")[-1]
+                    if range_total.isdigit():
+                        total_bytes = int(range_total)
+                elif content_length and content_length.isdigit():
+                    total_bytes = bytes_downloaded + int(content_length)
+
                 start_time = time.monotonic()
                 last_emit_time = start_time
-                last_emit_bytes = 0
+                last_emit_bytes = bytes_downloaded
 
-                with open(temp_path, "wb") as f:
+                with open(temp_path, write_mode) as f:
                     for chunk in response.iter_bytes(chunk_size=CHUNK_SIZE):
                         if cancel_event and cancel_event.is_set():
                             raise DownloadCancelledError("Download cancelled by user")
+                        if pause_event and pause_event.is_set():
+                            raise DownloadPausedError("Download paused by user")
 
                         if not chunk:
                             continue
@@ -177,6 +187,10 @@ def download_stream(
 
         return destination_path
 
+    except DownloadPausedError:
+        # Preserve temporary .part file on disk so download can be resumed seamlessly
+        logger.info(f"Stream download paused for task {task_id}; preserved partial file.")
+        raise
     except httpx.TimeoutException as exc:
         if temp_path.exists():
             try:
