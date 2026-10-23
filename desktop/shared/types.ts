@@ -136,6 +136,35 @@ export interface SavedMediaResult {
   count: number;
 }
 
+export interface QuerySavedMediaParams {
+  query?: string;
+  media_type?: "all" | "image" | "video" | "audio";
+  container?: string;
+  sort_by?: "newest" | "oldest" | "title" | "size_desc" | "size_asc";
+  limit?: number;
+  offset?: number;
+}
+
+export interface ThumbnailResult {
+  item_id: string;
+  thumbnail_path: string;
+  cached: boolean;
+  size_bytes?: number;
+}
+
+export interface ExportMetadataResult {
+  media_item: DiscoveredMediaItem;
+  download_task?: DownloadTaskRecord | null;
+  exported_at: string;
+}
+
+export interface DeleteDownloadedMediaResult {
+  task_id: string;
+  deleted: boolean;
+  file_deleted: boolean;
+  path?: string | null;
+}
+
 export interface ToggleSaveResult {
   id: string;
   is_saved: boolean;
@@ -331,6 +360,40 @@ export interface DesktopApi {
     outputPath: string,
     targetFormat?: string
   ) => Promise<ConvertFormatResult>;
+
+  /**
+   * Search, filter, and sort bookmarked media items in the media library.
+   */
+  querySavedMedia?: (params?: QuerySavedMediaParams) => Promise<SavedMediaResult>;
+
+  /**
+   * Generate or retrieve a cached thumbnail for a local media file using Pillow or FFmpeg.
+   */
+  generateThumbnail?: (
+    sourcePath: string,
+    itemId: string,
+    mediaType?: string,
+    forceRegenerate?: boolean,
+    timestampSec?: number
+  ) => Promise<ThumbnailResult>;
+
+  /**
+   * Export comprehensive metadata and download task history for a media item as JSON.
+   */
+  exportMediaMetadata?: (mediaId: string) => Promise<ExportMetadataResult>;
+
+  /**
+   * Remove a download task and optionally delete its associated file from local disk.
+   */
+  deleteDownloadedMedia?: (
+    taskId: string,
+    deleteFileFromDisk?: boolean
+  ) => Promise<DeleteDownloadedMediaResult>;
+
+  /**
+   * Convert local Windows file path to media-loader:// URL for in-app media playback & previews.
+   */
+  toMediaLoaderUrl?: (localPath: string) => string;
 }
 
 declare global {

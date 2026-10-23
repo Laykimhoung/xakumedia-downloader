@@ -10,6 +10,12 @@ from .ffmpeg import (
     inspect_media,
     merge_video_audio,
 )
+from .thumbnail import (
+    generate_image_thumbnail,
+    generate_media_thumbnail,
+    generate_video_thumbnail,
+    get_cached_thumbnail_path,
+)
 
 __all__ = [
     "find_ffmpeg",
@@ -20,4 +26,8 @@ __all__ = [
     "merge_video_audio",
     "convert_container",
     "extract_audio",
+    "generate_image_thumbnail",
+    "generate_video_thumbnail",
+    "generate_media_thumbnail",
+    "get_cached_thumbnail_path",
 ]

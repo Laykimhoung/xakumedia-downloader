@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   LayoutDashboard,
   Search,
@@ -23,6 +23,17 @@ import {
   FolderOpen,
   XCircle,
   RotateCcw,
+  Play,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  X,
+  FileJson,
+  Copy,
+  Check,
+  Filter,
+  ArrowUpDown,
+  Music,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
@@ -35,6 +46,7 @@ import type {
   PythonPingResult,
   ScanHistoryRecord,
   SystemInfo,
+  ExportMetadataResult,
 } from "../../desktop/shared/types";
 
 export const App: React.FC = () => {
@@ -56,7 +68,59 @@ export const App: React.FC = () => {
   const [savedMediaItems, setSavedMediaItems] = useState<DiscoveredMediaItem[]>([]);
   const [savedMediaLoading, setSavedMediaLoading] = useState<boolean>(false);
   const [savedMediaFilter, setSavedMediaFilter] = useState<"all" | "image" | "video" | "audio">("all");
+  const [libraryQuery, setLibraryQuery] = useState<string>("");
+  const [libraryContainer, setLibraryContainer] = useState<string>("all");
+  const [librarySort, setLibrarySort] = useState<"newest" | "oldest" | "title" | "size_desc" | "size_asc">("newest");
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
+
+  // Media Preview & Lightbox State
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean;
+    mediaItem: DiscoveredMediaItem | null;
+    localPath?: string | null;
+    mode: "player" | "lightbox";
+    zoom: number;
+    rotation: number;
+  }>({
+    isOpen: false,
+    mediaItem: null,
+    localPath: null,
+    mode: "lightbox",
+    zoom: 1,
+    rotation: 0,
+  });
+  const mediaPlayerRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+
+  // Metadata Export Modal State
+  const [exportModal, setExportModal] = useState<{
+    isOpen: boolean;
+    mediaItem: DiscoveredMediaItem | null;
+    metadata: ExportMetadataResult | null;
+    loading: boolean;
+    copied: boolean;
+  }>({
+    isOpen: false,
+    mediaItem: null,
+    metadata: null,
+    loading: false,
+    copied: false,
+  });
+
+  // Safe Deletion Confirmation State
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean;
+    mediaItem: DiscoveredMediaItem | null;
+    localPath?: string | null;
+    deleteDiskFile: boolean;
+    loading: boolean;
+  }>({
+    isOpen: false,
+    mediaItem: null,
+    localPath: null,
+    deleteDiskFile: true,
+    loading: false,
+  });
 
   const [scanHistory, setScanHistory] = useState<ScanHistoryRecord[]>([]);
   const [scanHistoryLoading, setScanHistoryLoading] = useState<boolean>(false);
@@ -98,20 +162,145 @@ export const App: React.FC = () => {
     return `${mins}m ${secs}s`;
   };
 
-  const fetchSavedMedia = async (filter?: "all" | "image" | "video" | "audio") => {
-    if (!window.api?.getSavedMedia) return;
+  const fetchSavedMedia = async (
+    mediaType = savedMediaFilter,
+    query = libraryQuery,
+    container = libraryContainer,
+    sortBy = librarySort
+  ) => {
     setSavedMediaLoading(true);
     try {
-      const typeParam = filter && filter !== "all" ? filter : undefined;
-      const res = await window.api.getSavedMedia(typeParam);
-      setSavedMediaItems(res.items || []);
-      if (!typeParam) {
+      if (window.api?.querySavedMedia) {
+        const res = await window.api.querySavedMedia({
+          media_type: mediaType === "all" ? undefined : mediaType,
+          query: query.trim() || undefined,
+          container: container === "all" ? undefined : container,
+          sort_by: sortBy,
+        });
+        setSavedMediaItems(res.items || []);
         setBookmarkedIds(new Set((res.items || []).map((i) => i.id)));
+      } else if (window.api?.getSavedMedia) {
+        const typeParam = mediaType && mediaType !== "all" ? mediaType : undefined;
+        const res = await window.api.getSavedMedia(typeParam);
+        setSavedMediaItems(res.items || []);
+        if (!typeParam) {
+          setBookmarkedIds(new Set((res.items || []).map((i) => i.id)));
+        }
       }
     } catch (err) {
       console.error("Failed to load saved media:", err);
     } finally {
       setSavedMediaLoading(false);
+    }
+  };
+
+  const handleOpenPreview = (
+    item: DiscoveredMediaItem,
+    localPath?: string | null
+  ) => {
+    // If no localPath passed, check completed download tasks
+    const matchingTask = downloadTasks.find(
+      (t) => (t.media_item.id === item.id || t.id === item.id) && t.destination_path
+    );
+    const resolvedPath = localPath || matchingTask?.destination_path || null;
+    const isImage = item.media_type === "image";
+    setPreviewModal({
+      isOpen: true,
+      mediaItem: item,
+      localPath: resolvedPath,
+      mode: isImage ? "lightbox" : "player",
+      zoom: 1,
+      rotation: 0,
+    });
+    setPlaybackSpeed(1.0);
+  };
+
+  const handleSetPlaybackRate = (rate: number) => {
+    setPlaybackSpeed(rate);
+    if (mediaPlayerRef.current) {
+      mediaPlayerRef.current.playbackRate = rate;
+    }
+  };
+
+  const handleOpenExportModal = async (item: DiscoveredMediaItem) => {
+    setExportModal({
+      isOpen: true,
+      mediaItem: item,
+      metadata: null,
+      loading: true,
+      copied: false,
+    });
+    try {
+      if (window.api?.exportMediaMetadata) {
+        const res = await window.api.exportMediaMetadata(item.id);
+        setExportModal((prev) => ({
+          ...prev,
+          metadata: res,
+          loading: false,
+        }));
+      } else {
+        setExportModal((prev) => ({
+          ...prev,
+          metadata: {
+            media_item: item,
+            download_task: null,
+            exported_at: new Date().toISOString(),
+          },
+          loading: false,
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to export metadata:", err);
+      setExportModal((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handlePromptDelete = (
+    item: DiscoveredMediaItem,
+    localPath?: string | null
+  ) => {
+    const matchingTask = downloadTasks.find(
+      (t) => (t.media_item.id === item.id || t.id === item.id) && t.destination_path
+    );
+    const resolvedPath = localPath || matchingTask?.destination_path || null;
+    setDeleteConfirm({
+      isOpen: true,
+      mediaItem: item,
+      localPath: resolvedPath,
+      deleteDiskFile: Boolean(resolvedPath),
+      loading: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm.mediaItem) return;
+    setDeleteConfirm((prev) => ({ ...prev, loading: true }));
+    const itemId = deleteConfirm.mediaItem.id;
+    try {
+      if (window.api?.deleteDownloadedMedia) {
+        await window.api.deleteDownloadedMedia(itemId, deleteConfirm.deleteDiskFile);
+      } else if (window.api?.deleteMediaItem) {
+        await window.api.deleteMediaItem(itemId);
+      }
+      setBookmarkedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+      setSavedMediaItems((prev) => prev.filter((i) => i.id !== itemId));
+      setDownloadTasks((prev) =>
+        prev.filter((t) => t.media_item.id !== itemId && t.id !== itemId)
+      );
+      setDeleteConfirm({
+        isOpen: false,
+        mediaItem: null,
+        localPath: null,
+        deleteDiskFile: true,
+        loading: false,
+      });
+    } catch (err) {
+      console.error("Failed to delete media item:", err);
+      setDeleteConfirm((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -142,25 +331,10 @@ export const App: React.FC = () => {
         return next;
       });
       if (activeTab === "library" || activeTab === "saved") {
-        await fetchSavedMedia(savedMediaFilter);
+        await fetchSavedMedia(savedMediaFilter, libraryQuery, libraryContainer, librarySort);
       }
     } catch (err) {
       console.error("Failed to toggle bookmark:", err);
-    }
-  };
-
-  const handleDeleteSavedMedia = async (mediaId: string) => {
-    if (!window.api?.deleteMediaItem) return;
-    try {
-      await window.api.deleteMediaItem(mediaId);
-      setBookmarkedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(mediaId);
-        return next;
-      });
-      setSavedMediaItems((prev) => prev.filter((i) => i.id !== mediaId));
-    } catch (err) {
-      console.error("Failed to delete media item:", err);
     }
   };
 
@@ -415,15 +589,65 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  // Keyboard shortcut listener for Modals & Lightbox
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (previewModal.isOpen) {
+        if (e.key === "Escape") {
+          setPreviewModal((prev) => ({ ...prev, isOpen: false }));
+        } else if (previewModal.mode === "lightbox") {
+          if (e.key === "+" || e.key === "=") {
+            e.preventDefault();
+            setPreviewModal((prev) => ({
+              ...prev,
+              zoom: Math.min(4, Number((prev.zoom + 0.25).toFixed(2))),
+            }));
+          } else if (e.key === "-" || e.key === "_") {
+            e.preventDefault();
+            setPreviewModal((prev) => ({
+              ...prev,
+              zoom: Math.max(0.25, Number((prev.zoom - 0.25).toFixed(2))),
+            }));
+          } else if (e.key === "0") {
+            e.preventDefault();
+            setPreviewModal((prev) => ({ ...prev, zoom: 1, rotation: 0 }));
+          } else if (e.key === "r" || e.key === "R") {
+            e.preventDefault();
+            setPreviewModal((prev) => ({
+              ...prev,
+              rotation: (prev.rotation + 90) % 360,
+            }));
+          }
+        }
+      } else if (exportModal.isOpen && e.key === "Escape") {
+        setExportModal((prev) => ({ ...prev, isOpen: false }));
+      } else if (deleteConfirm.isOpen && e.key === "Escape") {
+        setDeleteConfirm((prev) => ({ ...prev, isOpen: false }));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    previewModal.isOpen,
+    previewModal.mode,
+    exportModal.isOpen,
+    deleteConfirm.isOpen,
+  ]);
+
   useEffect(() => {
     if (activeTab === "library" || activeTab === "saved") {
-      fetchSavedMedia(savedMediaFilter);
+      fetchSavedMedia(
+        savedMediaFilter,
+        libraryQuery,
+        libraryContainer,
+        librarySort
+      );
     } else if (activeTab === "history") {
       fetchScanHistory();
     } else if (activeTab === "downloads") {
       fetchDownloadTasks();
     }
-  }, [activeTab, savedMediaFilter]);
+  }, [activeTab, savedMediaFilter, libraryContainer, librarySort]);
 
   const navItems = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -520,7 +744,7 @@ export const App: React.FC = () => {
         <header className="h-14 border-b border-brand-dark flex items-center justify-between px-8 bg-brand-black/30">
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider text-neutral-400 font-mono">
-              Milestone 11 / FFmpeg Stream Merging & Format Conversion
+              Milestone 12 / Media Preview, Lightbox &amp; Library Polish
             </span>
           </div>
           <div className="flex items-center space-x-3">
@@ -761,6 +985,17 @@ export const App: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleOpenPreview(item);
+                            }}
+                            className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/90 text-neutral-300 hover:text-white transition-all shadow-sm"
+                            title="Preview item"
+                          >
+                            <Eye className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               handleStartDownload(item);
                             }}
                             disabled={downloadingIds.has(item.id)}
@@ -957,23 +1192,33 @@ export const App: React.FC = () => {
                         <span className="text-neutral-400 font-mono">
                           Discovered at: {new Date(scanResult.media_item.created_at).toLocaleTimeString()}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => handleStartDownload(scanResult.media_item!, selectedFormat)}
-                          disabled={downloadingIds.has(scanResult.media_item.id)}
-                          className="px-4 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-2 transition-all shadow-md shadow-brand-red/30 cursor-pointer"
-                        >
-                          {downloadingIds.has(scanResult.media_item.id) ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
-                          )}
-                          <span>
-                            {selectedFormat?.requires_merge
-                              ? "Download & Merge (FFmpeg)"
-                              : "Download Now"}
-                          </span>
-                        </button>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPreview(scanResult.media_item!)}
+                            className="px-3.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-1.5 transition-all cursor-pointer"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Preview</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStartDownload(scanResult.media_item!, selectedFormat)}
+                            disabled={downloadingIds.has(scanResult.media_item.id)}
+                            className="px-4 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-mono font-medium flex items-center space-x-2 transition-all shadow-md shadow-brand-red/30 cursor-pointer"
+                          >
+                            {downloadingIds.has(scanResult.media_item.id) ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                            <span>
+                              {selectedFormat?.requires_merge
+                                ? "Download & Merge (FFmpeg)"
+                                : "Download Now"}
+                            </span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1264,43 +1509,138 @@ export const App: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-2xl font-bold tracking-tight text-brand-white">
-                    Media Library & Bookmarks
+                    Media Library &amp; Bookmarks
                   </h1>
                   <p className="text-sm text-neutral-400 mt-1">
-                    Saved media items stored in your local SQLite library. Preserved across sessions.
+                    Saved media items stored in your local SQLite library. Search, filter, inspect, and preview.
                   </p>
                 </div>
 
                 <div className="flex items-center space-x-2">
                   <button
-                    onClick={() => fetchSavedMedia(savedMediaFilter)}
+                    onClick={() =>
+                      fetchSavedMedia(
+                        savedMediaFilter,
+                        libraryQuery,
+                        libraryContainer,
+                        librarySort
+                      )
+                    }
                     disabled={savedMediaLoading}
                     className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${savedMediaLoading ? "animate-spin" : ""}`} />
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${
+                        savedMediaLoading ? "animate-spin" : ""
+                      }`}
+                    />
                     <span>Refresh</span>
                   </button>
                 </div>
               </div>
 
-              {/* Filter Pills */}
-              <div className="flex items-center space-x-2 border-b border-brand-dark/60 pb-3">
-                {(["all", "video", "image", "audio"] as const).map((filter) => (
-                  <button
-                    key={filter}
-                    onClick={() => setSavedMediaFilter(filter)}
-                    className={`px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider transition-all ${
-                      savedMediaFilter === filter
-                        ? "bg-brand-red text-white font-semibold shadow-sm shadow-brand-red/30"
-                        : "bg-brand-dark/40 text-neutral-400 hover:text-white hover:bg-brand-dark"
-                    }`}
-                  >
-                    {filter === "all" ? "All Media" : `${filter}s`}
-                  </button>
-                ))}
-                <span className="text-xs font-mono text-neutral-400 ml-auto">
-                  {savedMediaItems.length} {savedMediaItems.length === 1 ? "item" : "items"} stored
-                </span>
+              {/* Search & Filter Toolbar */}
+              <div className="bg-brand-dark/30 border border-brand-dark p-3.5 rounded-xl space-y-3">
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  {/* Search Bar */}
+                  <div className="relative flex-1">
+                    <Search className="h-4 w-4 text-neutral-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={libraryQuery}
+                      onChange={(e) => {
+                        setLibraryQuery(e.target.value);
+                        fetchSavedMedia(
+                          savedMediaFilter,
+                          e.target.value,
+                          libraryContainer,
+                          librarySort
+                        );
+                      }}
+                      placeholder="Search title, author, URL in library..."
+                      className="w-full bg-brand-black/80 border border-brand-dark rounded-lg pl-9 pr-8 py-2 text-xs text-brand-white placeholder-neutral-400 focus:outline-none focus:border-brand-red font-mono"
+                    />
+                    {libraryQuery && (
+                      <button
+                        onClick={() => {
+                          setLibraryQuery("");
+                          fetchSavedMedia(
+                            savedMediaFilter,
+                            "",
+                            libraryContainer,
+                            librarySort
+                          );
+                        }}
+                        className="absolute right-2.5 top-2.5 text-neutral-400 hover:text-white"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Container Format Filter Dropdown */}
+                  <div className="flex items-center space-x-1.5 bg-brand-black/80 border border-brand-dark rounded-lg px-2.5 py-1.5 shrink-0">
+                    <Filter className="h-3.5 w-3.5 text-neutral-400" />
+                    <select
+                      value={libraryContainer}
+                      onChange={(e) => setLibraryContainer(e.target.value)}
+                      className="bg-transparent text-xs font-mono text-neutral-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value="all" className="bg-brand-black">All Containers</option>
+                      <option value="mp4" className="bg-brand-black">MP4 Video</option>
+                      <option value="webm" className="bg-brand-black">WEBM Video</option>
+                      <option value="mkv" className="bg-brand-black">MKV Video</option>
+                      <option value="jpg" className="bg-brand-black">JPG / JPEG Image</option>
+                      <option value="png" className="bg-brand-black">PNG Image</option>
+                      <option value="webp" className="bg-brand-black">WEBP Image</option>
+                      <option value="gif" className="bg-brand-black">GIF Image</option>
+                      <option value="mp3" className="bg-brand-black">MP3 Audio</option>
+                      <option value="m4a" className="bg-brand-black">M4A Audio</option>
+                    </select>
+                  </div>
+
+                  {/* Sort Order Dropdown */}
+                  <div className="flex items-center space-x-1.5 bg-brand-black/80 border border-brand-dark rounded-lg px-2.5 py-1.5 shrink-0">
+                    <ArrowUpDown className="h-3.5 w-3.5 text-neutral-400" />
+                    <select
+                      value={librarySort}
+                      onChange={(e) =>
+                        setLibrarySort(
+                          e.target.value as typeof librarySort
+                        )
+                      }
+                      className="bg-transparent text-xs font-mono text-neutral-200 focus:outline-none cursor-pointer"
+                    >
+                      <option value="newest" className="bg-brand-black">Newest First</option>
+                      <option value="oldest" className="bg-brand-black">Oldest First</option>
+                      <option value="title" className="bg-brand-black">Title (A-Z)</option>
+                      <option value="size_desc" className="bg-brand-black">Size (Largest)</option>
+                      <option value="size_asc" className="bg-brand-black">Size (Smallest)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex items-center justify-between pt-1 border-t border-brand-dark/50">
+                  <div className="flex items-center space-x-2">
+                    {(["all", "video", "image", "audio"] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        onClick={() => setSavedMediaFilter(filter)}
+                        className={`px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider transition-all ${
+                          savedMediaFilter === filter
+                            ? "bg-brand-red text-white font-semibold shadow-sm shadow-brand-red/30"
+                            : "bg-brand-dark/40 text-neutral-400 hover:text-white hover:bg-brand-dark"
+                        }`}
+                      >
+                        {filter === "all" ? "All Types" : `${filter}s`}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs font-mono text-neutral-400">
+                    {savedMediaItems.length} {savedMediaItems.length === 1 ? "item" : "items"} found
+                  </span>
+                </div>
               </div>
 
               {savedMediaLoading && savedMediaItems.length === 0 ? (
@@ -1311,98 +1651,183 @@ export const App: React.FC = () => {
               ) : savedMediaItems.length === 0 ? (
                 <div className="py-20 flex flex-col items-center justify-center space-y-3 bg-brand-dark/20 border border-brand-dark/60 rounded-xl text-center p-8">
                   <FolderArchive className="h-10 w-10 text-neutral-400 stroke-1" />
-                  <h3 className="text-sm font-semibold text-brand-white">Your Media Library is Empty</h3>
+                  <h3 className="text-sm font-semibold text-brand-white">No Matching Media Items</h3>
                   <p className="text-xs text-neutral-400 max-w-sm">
-                    Bookmark media items while scanning URLs to save them to your local collection.
+                    {libraryQuery || libraryContainer !== "all" || savedMediaFilter !== "all"
+                      ? "No saved media match your current search and filter criteria."
+                      : "Bookmark media items while scanning URLs to save them to your local collection."}
                   </p>
-                  <button
-                    onClick={() => setActiveTab("scan")}
-                    className="mt-2 px-4 py-2 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
-                  >
-                    Discover Media in Scanner
-                  </button>
+                  {(libraryQuery || libraryContainer !== "all" || savedMediaFilter !== "all") ? (
+                    <button
+                      onClick={() => {
+                        setLibraryQuery("");
+                        setLibraryContainer("all");
+                        setSavedMediaFilter("all");
+                        fetchSavedMedia("all", "", "all", librarySort);
+                      }}
+                      className="mt-2 px-4 py-2 bg-brand-dark hover:bg-neutral-800 text-white rounded-lg text-xs font-mono transition-colors"
+                    >
+                      Reset Filters
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setActiveTab("scan")}
+                      className="mt-2 px-4 py-2 bg-brand-red hover:bg-red-700 text-white rounded-lg text-xs font-medium transition-colors"
+                    >
+                      Discover Media in Scanner
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                  {savedMediaItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="bg-brand-dark/30 border border-brand-dark rounded-xl p-3.5 flex flex-col justify-between space-y-3 hover:border-brand-dark/90 transition-all group"
-                    >
-                      <div className="space-y-2.5">
-                        <div className="w-full h-36 rounded-lg bg-brand-black/90 border border-brand-dark overflow-hidden flex items-center justify-center relative">
-                          {item.thumbnail_url ? (
-                            <img
-                              src={item.thumbnail_url}
-                              alt={item.title || "Media preview"}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : item.media_type === "video" ? (
-                            <Film className="h-8 w-8 text-purple-400" />
-                          ) : (
-                            <ImageIcon className="h-8 w-8 text-emerald-400" />
-                          )}
-                          <span className="absolute top-2 left-2 px-2 py-0.5 bg-black/80 rounded text-[10px] font-mono uppercase text-neutral-200">
-                            {item.media_type}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleBookmark(item)}
-                            className="absolute top-2 right-2 p-1.5 rounded bg-brand-red text-white shadow-md shadow-brand-red/40 hover:bg-red-700 transition-colors"
-                            title="Remove from saved library"
-                          >
-                            <Bookmark className="h-3.5 w-3.5 fill-current" />
-                          </button>
-                        </div>
+                  {savedMediaItems.map((item) => {
+                    const completedDl = downloadTasks.find(
+                      (t) =>
+                        (t.media_item.id === item.id || t.id === item.id) &&
+                        t.status === "completed"
+                    );
+                    const isDownloaded = Boolean(completedDl?.destination_path);
 
-                        <div className="space-y-1">
-                          <h4 className="text-xs font-bold text-brand-white truncate font-sans" title={item.title || ""}>
-                            {item.title || "Untitled Item"}
-                          </h4>
-                          <p className="text-[11px] font-mono text-neutral-400 truncate">
-                            Author: <span className="text-neutral-200">{item.author || "Unknown"}</span>
-                          </p>
-                          <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 pt-1">
-                            <span>{formatBytes(item.filesize_bytes)}</span>
-                            <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-brand-dark/30 border border-brand-dark rounded-xl p-3.5 flex flex-col justify-between space-y-3 hover:border-brand-dark/90 transition-all group"
+                      >
+                        <div className="space-y-2.5">
+                          {/* Card Thumbnail with Overlay */}
+                          <div
+                            onClick={() =>
+                              handleOpenPreview(item, completedDl?.destination_path)
+                            }
+                            className="w-full h-36 rounded-lg bg-brand-black/90 border border-brand-dark overflow-hidden flex items-center justify-center relative cursor-pointer group/thumb"
+                          >
+                            {item.thumbnail_url ? (
+                              <img
+                                src={item.thumbnail_url}
+                                alt={item.title || "Media preview"}
+                                className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
+                              />
+                            ) : item.media_type === "video" ? (
+                              <Film className="h-8 w-8 text-purple-400" />
+                            ) : item.media_type === "audio" ? (
+                              <Music className="h-8 w-8 text-pink-400" />
+                            ) : (
+                              <ImageIcon className="h-8 w-8 text-emerald-400" />
+                            )}
+
+                            {/* Hover Preview Overlay */}
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center space-x-2 transition-opacity">
+                              <span className="p-2.5 rounded-full bg-brand-red/90 text-white shadow-lg shadow-brand-red/40 flex items-center justify-center">
+                                {item.media_type === "image" ? (
+                                  <ZoomIn className="h-4 w-4" />
+                                ) : (
+                                  <Play className="h-4 w-4 fill-current ml-0.5" />
+                                )}
+                              </span>
+                              <span className="text-[11px] font-mono text-white font-semibold">
+                                Preview
+                              </span>
+                            </div>
+
+                            {/* Tags */}
+                            <div className="absolute top-2 left-2 flex items-center space-x-1.5">
+                              <span className="px-2 py-0.5 bg-black/80 rounded text-[10px] font-mono uppercase text-neutral-200">
+                                {item.media_type}
+                              </span>
+                              {isDownloaded && (
+                                <span className="px-1.5 py-0.5 bg-emerald-950/80 border border-emerald-600/60 rounded text-[9px] font-mono text-emerald-300">
+                                  Saved to Disk
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleBookmark(item);
+                              }}
+                              className="absolute top-2 right-2 p-1.5 rounded bg-brand-red text-white shadow-md shadow-brand-red/40 hover:bg-red-700 transition-colors"
+                              title="Remove from saved library"
+                            >
+                              <Bookmark className="h-3.5 w-3.5 fill-current" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <h4
+                              className="text-xs font-bold text-brand-white truncate font-sans cursor-pointer hover:text-brand-red transition-colors"
+                              title={item.title || ""}
+                              onClick={() =>
+                                handleOpenPreview(item, completedDl?.destination_path)
+                              }
+                            >
+                              {item.title || "Untitled Item"}
+                            </h4>
+                            <p className="text-[11px] font-mono text-neutral-400 truncate">
+                              Author:{" "}
+                              <span className="text-neutral-200">
+                                {item.author || "Unknown"}
+                              </span>
+                            </p>
+                            <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 pt-1">
+                              <span>{formatBytes(item.filesize_bytes)}</span>
+                              <span>{new Date(item.created_at).toLocaleDateString()}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="border-t border-brand-dark/60 pt-2 flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
+                        {/* Card Actions Bar */}
+                        <div className="border-t border-brand-dark/60 pt-2 flex items-center justify-between text-xs font-mono">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() =>
+                                handleOpenPreview(item, completedDl?.destination_path)
+                              }
+                              className="text-neutral-300 hover:text-white flex items-center space-x-1"
+                              title="Preview media"
+                            >
+                              <Eye className="h-3 w-3" />
+                              <span>Preview</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleStartDownload(item)}
+                              disabled={downloadingIds.has(item.id)}
+                              className="text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
+                              title={isDownloaded ? "Redownload media" : "Download media"}
+                            >
+                              {downloadingIds.has(item.id) ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Download className="h-3 w-3" />
+                              )}
+                              <span>{isDownloaded ? "Redownload" : "Download"}</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenExportModal(item)}
+                              className="text-purple-400 hover:text-purple-300 flex items-center space-x-1"
+                              title="Export metadata JSON"
+                            >
+                              <FileJson className="h-3 w-3" />
+                              <span>JSON</span>
+                            </button>
+                          </div>
+
                           <button
-                            onClick={() => handleStartDownload(item)}
-                            disabled={downloadingIds.has(item.id)}
-                            className="text-[11px] font-mono text-emerald-400 hover:text-emerald-300 flex items-center space-x-1"
-                            title="Download this media item"
+                            onClick={() =>
+                              handlePromptDelete(item, completedDl?.destination_path)
+                            }
+                            className="text-red-400/80 hover:text-red-400 flex items-center space-x-1"
+                            title="Delete item"
                           >
-                            {downloadingIds.has(item.id) ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Download className="h-3 w-3" />
-                            )}
-                            <span>Download</span>
-                          </button>
-                          <button
-                            onClick={() => handleReScan(item.source_url)}
-                            className="text-[11px] font-mono text-neutral-400 hover:text-white flex items-center space-x-1"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                            <span>Source</span>
+                            <Trash2 className="h-3 w-3" />
                           </button>
                         </div>
-                        <button
-                          onClick={() => handleDeleteSavedMedia(item.id)}
-                          className="text-[11px] font-mono text-red-400/80 hover:text-red-400 flex items-center space-x-1"
-                          title="Permanently delete from library"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          <span>Delete</span>
-                        </button>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1636,14 +2061,38 @@ export const App: React.FC = () => {
                                 </button>
                               )}
                               {isCompleted && task.destination_path && (
-                                <button
-                                  onClick={() => handleOpenFileOrFolder(task.destination_path)}
-                                  className="px-2.5 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 rounded-md text-xs font-mono text-emerald-300 flex items-center space-x-1.5 transition-colors"
-                                  title={`Show in folder: ${task.destination_path}`}
-                                >
-                                  <FolderOpen className="h-3.5 w-3.5" />
-                                  <span>Show File</span>
-                                </button>
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    onClick={() =>
+                                      handleOpenPreview(
+                                        task.media_item,
+                                        task.destination_path
+                                      )
+                                    }
+                                    className="px-2.5 py-1.5 bg-sky-950/40 hover:bg-sky-900/50 border border-sky-800/60 rounded-md text-xs font-mono text-sky-300 flex items-center space-x-1.5 transition-colors cursor-pointer"
+                                    title="Preview downloaded file"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" />
+                                    <span>Preview</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenFileOrFolder(task.destination_path)}
+                                    className="px-2.5 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-800/60 rounded-md text-xs font-mono text-emerald-300 flex items-center space-x-1.5 transition-colors cursor-pointer"
+                                    title={`Show in folder: ${task.destination_path}`}
+                                  >
+                                    <FolderOpen className="h-3.5 w-3.5" />
+                                    <span>Show File</span>
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handlePromptDelete(task.media_item, task.destination_path)
+                                    }
+                                    className="p-1.5 bg-red-950/30 hover:bg-red-900/40 border border-red-800/40 rounded-md text-red-300 flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Delete task and downloaded file"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                               )}
                               {(isFailed || isCancelled) && (
                                 <button
@@ -1787,6 +2236,525 @@ export const App: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* ========================================================= */}
+      {/* MODAL 1: MEDIA PREVIEW (IMAGE LIGHTBOX & AUDIO/VIDEO PLAYER) */}
+      {/* ========================================================= */}
+      {previewModal.isOpen && previewModal.mediaItem && (
+        <>
+          {previewModal.mode === "lightbox" ? (
+            /* High-Resolution Image Lightbox Modal */
+            <div
+              className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col justify-between p-6 select-none animate-in fade-in duration-200"
+              onClick={() => setPreviewModal((prev) => ({ ...prev, isOpen: false }))}
+            >
+              {/* Lightbox Header Bar */}
+              <div
+                className="flex items-center justify-between z-10"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="space-y-0.5 max-w-xl">
+                  <h3 className="text-sm font-bold text-white truncate">
+                    {previewModal.mediaItem.title || "Image Preview"}
+                  </h3>
+                  <div className="flex items-center space-x-2 text-xs font-mono text-neutral-400">
+                    <span>Author: {previewModal.mediaItem.author || "Unknown"}</span>
+                    <span>·</span>
+                    <span className="uppercase text-emerald-400">
+                      {previewModal.mediaItem.available_formats[0]?.container || "IMAGE"}
+                    </span>
+                    {previewModal.localPath && (
+                      <span className="px-1.5 py-0.5 bg-emerald-950/80 border border-emerald-600/60 rounded text-[10px] text-emerald-300">
+                        Local File
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Toolbar Controls */}
+                <div className="flex items-center space-x-2 bg-brand-black/80 border border-brand-dark rounded-xl px-3 py-1.5 shadow-xl">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewModal((prev) => ({
+                        ...prev,
+                        zoom: Math.max(0.25, Number((prev.zoom - 0.25).toFixed(2))),
+                      }))
+                    }
+                    className="p-1.5 text-neutral-300 hover:text-white rounded hover:bg-brand-dark transition-colors"
+                    title="Zoom Out (-)"
+                  >
+                    <ZoomOut className="h-4 w-4" />
+                  </button>
+
+                  <span className="text-xs font-mono font-medium text-neutral-200 min-w-12 text-center">
+                    {Math.round(previewModal.zoom * 100)}%
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewModal((prev) => ({
+                        ...prev,
+                        zoom: Math.min(4, Number((prev.zoom + 0.25).toFixed(2))),
+                      }))
+                    }
+                    className="p-1.5 text-neutral-300 hover:text-white rounded hover:bg-brand-dark transition-colors"
+                    title="Zoom In (+)"
+                  >
+                    <ZoomIn className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewModal((prev) => ({ ...prev, zoom: 1, rotation: 0 }))
+                    }
+                    className="p-1.5 text-neutral-300 hover:text-white rounded hover:bg-brand-dark transition-colors"
+                    title="Reset Zoom (0)"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewModal((prev) => ({
+                        ...prev,
+                        rotation: (prev.rotation + 90) % 360,
+                      }))
+                    }
+                    className="p-1.5 text-neutral-300 hover:text-white rounded hover:bg-brand-dark transition-colors"
+                    title="Rotate 90° (R)"
+                  >
+                    <RotateCw className="h-4 w-4" />
+                  </button>
+
+                  <div className="h-4 w-px bg-brand-dark mx-1" />
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="p-1.5 text-neutral-400 hover:text-red-400 rounded hover:bg-brand-dark transition-colors"
+                    title="Close (Escape)"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Lightbox Center Image Viewport */}
+              <div
+                className="flex-1 flex items-center justify-center overflow-hidden p-4 cursor-grab"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <img
+                  src={
+                    previewModal.localPath && window.api?.toMediaLoaderUrl
+                      ? window.api.toMediaLoaderUrl(previewModal.localPath)
+                      : previewModal.mediaItem.original_url ||
+                        previewModal.mediaItem.thumbnail_url ||
+                        ""
+                  }
+                  alt={previewModal.mediaItem.title || "Preview"}
+                  style={{
+                    transform: `scale(${previewModal.zoom}) rotate(${previewModal.rotation}deg)`,
+                    transition: "transform 0.15s ease-out",
+                  }}
+                  className="max-w-full max-h-[75vh] object-contain shadow-2xl rounded-md pointer-events-auto"
+                />
+              </div>
+
+              {/* Lightbox Footer Bar */}
+              <div
+                className="flex items-center justify-between z-10 text-xs font-mono text-neutral-400 border-t border-neutral-800/80 pt-3"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center space-x-3">
+                  <span>Size: {formatBytes(previewModal.mediaItem.filesize_bytes)}</span>
+                  <span>·</span>
+                  <span>
+                    Resolution:{" "}
+                    {previewModal.mediaItem.available_formats[0]?.resolution ||
+                      "Original Quality"}
+                  </span>
+                  <span>·</span>
+                  <span className="truncate max-w-sm text-neutral-400">
+                    {previewModal.localPath || previewModal.mediaItem.source_url}
+                  </span>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  {previewModal.localPath ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenFileOrFolder(previewModal.localPath)}
+                      className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-white flex items-center space-x-1.5 transition-colors"
+                    >
+                      <FolderOpen className="h-3.5 w-3.5" />
+                      <span>Show in Folder</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleStartDownload(previewModal.mediaItem!)}
+                      className="px-3 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-md flex items-center space-x-1.5 transition-colors shadow-md shadow-brand-red/30"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span>Download Image</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenExportModal(previewModal.mediaItem!)}
+                    className="px-3 py-1.5 bg-brand-black/80 hover:bg-brand-dark border border-brand-dark rounded-md text-purple-300 flex items-center space-x-1.5 transition-colors"
+                  >
+                    <FileJson className="h-3.5 w-3.5" />
+                    <span>Export JSON</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Video / Audio In-App Media Player Modal */
+            <div
+              className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-6 select-none animate-in fade-in duration-200"
+              onClick={() => setPreviewModal((prev) => ({ ...prev, isOpen: false }))}
+            >
+              <div
+                className="bg-brand-black border border-brand-dark rounded-2xl w-full max-w-4xl p-6 shadow-2xl space-y-4"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Player Header */}
+                <div className="flex items-center justify-between border-b border-brand-dark/60 pb-3">
+                  <div className="space-y-0.5 min-w-0 pr-4">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-bold text-sm text-brand-white truncate">
+                        {previewModal.mediaItem.title || "Media Player"}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-brand-dark border border-brand-dark text-neutral-300 shrink-0">
+                        {previewModal.mediaItem.available_formats[0]?.container ||
+                          previewModal.mediaItem.media_type}
+                      </span>
+                      {previewModal.localPath && (
+                        <span className="px-1.5 py-0.5 bg-emerald-950/80 border border-emerald-600/60 rounded text-[10px] font-mono text-emerald-300 shrink-0">
+                          Direct Local Stream
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs font-mono text-neutral-400 truncate">
+                      Author: {previewModal.mediaItem.author || "Unknown"} · Source:{" "}
+                      {previewModal.mediaItem.source_url}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModal((prev) => ({ ...prev, isOpen: false }))}
+                    className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-brand-dark transition-colors"
+                    title="Close Player (Escape)"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                {/* Player Body */}
+                <div className="flex flex-col items-center justify-center bg-black/90 rounded-xl overflow-hidden border border-brand-dark/80 min-h-64 relative">
+                  {previewModal.mediaItem.media_type === "audio" ? (
+                    /* Audio Player Layout */
+                    <div className="py-12 px-8 w-full max-w-lg flex flex-col items-center space-y-6">
+                      <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-pink-600 to-purple-600 flex items-center justify-center shadow-xl shadow-pink-900/30 animate-pulse">
+                        <Music className="h-10 w-10 text-white" />
+                      </div>
+                      <div className="text-center space-y-1">
+                        <h4 className="font-bold text-sm text-white">
+                          {previewModal.mediaItem.title || "Audio Track"}
+                        </h4>
+                        <p className="text-xs font-mono text-neutral-400">
+                          {previewModal.mediaItem.author}
+                        </p>
+                      </div>
+                      <audio
+                        ref={mediaPlayerRef as React.RefObject<HTMLAudioElement>}
+                        controls
+                        autoPlay
+                        src={
+                          previewModal.localPath && window.api?.toMediaLoaderUrl
+                            ? window.api.toMediaLoaderUrl(previewModal.localPath)
+                            : previewModal.mediaItem.available_formats.find((f) => f.url)?.url ||
+                              previewModal.mediaItem.original_url
+                        }
+                        className="w-full"
+                      />
+                    </div>
+                  ) : (
+                    /* Video Player Layout */
+                    <video
+                      ref={mediaPlayerRef as React.RefObject<HTMLVideoElement>}
+                      controls
+                      autoPlay
+                      src={
+                        previewModal.localPath && window.api?.toMediaLoaderUrl
+                          ? window.api.toMediaLoaderUrl(previewModal.localPath)
+                          : previewModal.mediaItem.available_formats.find((f) => f.url)?.url ||
+                            previewModal.mediaItem.original_url
+                      }
+                      className="w-full max-h-[62vh] rounded-xl bg-black object-contain shadow-2xl"
+                    />
+                  )}
+                </div>
+
+                {/* Player Controls & Diagnostics Bar */}
+                <div className="flex items-center justify-between text-xs font-mono text-neutral-400 pt-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] text-neutral-400">Speed:</span>
+                    {[0.5, 0.75, 1.0, 1.25, 1.5, 2.0].map((rate) => (
+                      <button
+                        type="button"
+                        key={rate}
+                        onClick={() => handleSetPlaybackRate(rate)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                          playbackSpeed === rate
+                            ? "bg-brand-red text-white font-semibold"
+                            : "bg-brand-dark/60 text-neutral-400 hover:text-white"
+                        }`}
+                      >
+                        {rate}x
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    {previewModal.localPath ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFileOrFolder(previewModal.localPath)}
+                        className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-white flex items-center space-x-1.5 transition-colors"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        <span>Show File</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleStartDownload(previewModal.mediaItem!)}
+                        className="px-3 py-1.5 bg-brand-red hover:bg-red-700 text-white rounded-md flex items-center space-x-1.5 transition-colors shadow-md shadow-brand-red/30"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>Download Stream</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenExportModal(previewModal.mediaItem!)}
+                      className="px-3 py-1.5 bg-brand-black/80 hover:bg-brand-dark border border-brand-dark rounded-md text-purple-300 flex items-center space-x-1.5 transition-colors"
+                    >
+                      <FileJson className="h-3.5 w-3.5" />
+                      <span>Export JSON</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 2: METADATA EXPORT MODAL */}
+      {/* ========================================================= */}
+      {exportModal.isOpen && exportModal.mediaItem && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none animate-in fade-in duration-200"
+          onClick={() => setExportModal((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <div
+            className="bg-brand-black border border-brand-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-brand-dark/60 pb-3">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-purple-950/80 border border-purple-800/60 text-purple-300">
+                  <FileJson className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Media Metadata Export</h3>
+                  <p className="text-xs font-mono text-neutral-400">
+                    Comprehensive JSON export of media discovery details and download task state.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setExportModal((prev) => ({ ...prev, isOpen: false }))}
+                className="p-1.5 text-neutral-400 hover:text-white rounded-lg hover:bg-brand-dark transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* JSON Code Viewer */}
+            {exportModal.loading ? (
+              <div className="py-20 flex flex-col items-center justify-center space-y-3 text-neutral-400">
+                <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
+                <span className="text-xs font-mono">Generating formatted metadata JSON...</span>
+              </div>
+            ) : (
+              <pre className="bg-brand-dark/40 border border-brand-dark/80 rounded-xl p-4 text-xs font-mono text-emerald-300 max-h-96 overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
+                {JSON.stringify(exportModal.metadata, null, 2)}
+              </pre>
+            )}
+
+            {/* Actions Footer */}
+            <div className="flex items-center justify-between pt-2 border-t border-brand-dark/60">
+              <span className="text-[11px] font-mono text-neutral-400">
+                Item ID: {exportModal.mediaItem.id}
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!exportModal.metadata) return;
+                    await navigator.clipboard.writeText(
+                      JSON.stringify(exportModal.metadata, null, 2)
+                    );
+                    setExportModal((prev) => ({ ...prev, copied: true }));
+                    setTimeout(() => {
+                      setExportModal((prev) => ({ ...prev, copied: false }));
+                    }, 2000);
+                  }}
+                  className="px-3.5 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark text-xs font-mono text-white rounded-lg flex items-center space-x-1.5 transition-colors"
+                >
+                  {exportModal.copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      <span className="text-emerald-400 font-semibold">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span>Copy JSON</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!exportModal.metadata) return;
+                    const jsonStr = JSON.stringify(exportModal.metadata, null, 2);
+                    const blob = new Blob([jsonStr], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    const safeTitle = (exportModal.mediaItem?.title || "media").replace(
+                      /[^a-zA-Z0-9_-]/g,
+                      "_"
+                    );
+                    a.download = `${safeTitle}_metadata.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 text-xs font-mono text-white font-medium rounded-lg flex items-center space-x-1.5 transition-colors shadow-md shadow-purple-900/30"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Download .json</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 3: SAFE DELETION CONFIRMATION MODAL */}
+      {/* ========================================================= */}
+      {deleteConfirm.isOpen && deleteConfirm.mediaItem && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6 select-none animate-in fade-in duration-200"
+          onClick={() => setDeleteConfirm((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <div
+            className="bg-brand-black border border-red-900/60 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center space-x-3 text-red-400">
+              <div className="p-2 rounded-lg bg-red-950/80 border border-red-800/60">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold text-white">Delete Media Item</h3>
+            </div>
+
+            {/* Modal Details */}
+            <div className="space-y-3 text-xs text-neutral-300">
+              <p>
+                Are you sure you want to remove this media item from your local SQLite library?
+              </p>
+              <div className="bg-brand-dark/40 border border-brand-dark/80 rounded-xl p-3 space-y-1">
+                <p className="font-semibold text-white truncate">
+                  {deleteConfirm.mediaItem.title || "Untitled Media"}
+                </p>
+                <p className="text-[11px] font-mono text-neutral-400 truncate">
+                  Author: {deleteConfirm.mediaItem.author || "Unknown"} ·{" "}
+                  {formatBytes(deleteConfirm.mediaItem.filesize_bytes)}
+                </p>
+              </div>
+
+              {/* Disk deletion toggle if file exists */}
+              {deleteConfirm.localPath && (
+                <label className="flex items-start space-x-2.5 text-xs text-neutral-300 bg-red-950/20 border border-red-800/40 p-3 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm.deleteDiskFile}
+                    onChange={(e) =>
+                      setDeleteConfirm((prev) => ({
+                        ...prev,
+                        deleteDiskFile: e.target.checked,
+                      }))
+                    }
+                    className="mt-0.5 rounded border-red-800 text-brand-red focus:ring-brand-red"
+                  />
+                  <div className="space-y-0.5 min-w-0">
+                    <span className="font-medium text-red-200 block">
+                      Also permanently delete file from disk
+                    </span>
+                    <span className="text-[11px] font-mono text-neutral-400 block truncate" title={deleteConfirm.localPath}>
+                      {deleteConfirm.localPath}
+                    </span>
+                  </div>
+                </label>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-brand-dark/60">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm((prev) => ({ ...prev, isOpen: false }))}
+                disabled={deleteConfirm.loading}
+                className="px-4 py-2 bg-brand-dark hover:bg-neutral-800 border border-brand-dark text-xs font-mono text-neutral-300 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleteConfirm.loading}
+                className="px-4 py-2 bg-red-700 hover:bg-red-600 text-xs font-mono font-medium text-white rounded-lg flex items-center space-x-1.5 transition-colors shadow-md shadow-red-900/30"
+              >
+                {deleteConfirm.loading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+                <span>Delete Permanently</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

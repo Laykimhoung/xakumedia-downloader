@@ -27,7 +27,8 @@ HandlerFunc = Callable[[dict[str, Any]], Any]
 class RpcDispatcher:
     """Dispatches JSON-RPC requests to registered handler functions."""
 
-    def __init__(self) -> None:
+    def __init__(self, repository: Any = None) -> None:
+        self.repository = repository
         self._handlers: dict[str, HandlerFunc] = {}
         self._register_default_handlers()
 
@@ -348,6 +349,60 @@ class RpcDispatcher:
             )
             return {"output_path": str(output), "success": True}
 
+        def generate_thumbnail_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from pathlib import Path
+
+            from ..processor.thumbnail import generate_media_thumbnail
+
+            source_path = params.get("source_path")
+            item_id = params.get("item_id")
+            if not source_path or not item_id:
+                raise TypeError("Parameters 'source_path' and 'item_id' are required.")
+
+            return generate_media_thumbnail(
+                source_path=Path(source_path),
+                item_id=str(item_id),
+                media_type=params.get("media_type", "image"),
+                force_regenerate=bool(params.get("force_regenerate", False)),
+                timestamp_sec=float(params.get("timestamp_sec", 1.0)),
+            )
+
+        def query_saved_media_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            items = repo.query_saved_media(
+                query=params.get("query"),
+                media_type=params.get("media_type"),
+                container=params.get("container"),
+                sort_by=params.get("sort_by", "newest"),
+                limit=int(params.get("limit", 50)),
+                offset=int(params.get("offset", 0)),
+            )
+            return {
+                "items": [item.model_dump(mode="json") for item in items],
+                "count": len(items),
+            }
+
+        def export_media_metadata_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            media_id = params.get("media_id")
+            if not media_id:
+                raise TypeError("Parameter 'media_id' is required.")
+            return repo.export_media_metadata(media_id)
+
+        def delete_downloaded_media_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            task_id = params.get("task_id")
+            if not task_id:
+                raise TypeError("Parameter 'task_id' is required.")
+            delete_disk = bool(params.get("delete_file_from_disk", True))
+            return repo.delete_downloaded_media(task_id, delete_file_from_disk=delete_disk)
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -360,8 +415,11 @@ class RpcDispatcher:
         self.register("clear_scan_history", clear_scan_history_handler)
         self.register("save_media_item", save_media_item_handler)
         self.register("get_saved_media", get_saved_media_handler)
+        self.register("query_saved_media", query_saved_media_handler)
         self.register("toggle_save_media", toggle_save_media_handler)
         self.register("delete_media_item", delete_media_item_handler)
+        self.register("export_media_metadata", export_media_metadata_handler)
+        self.register("delete_downloaded_media", delete_downloaded_media_handler)
         self.register("start_download", start_download_handler)
         self.register("cancel_download", cancel_download_handler)
         self.register("get_download_tasks", get_download_tasks_handler)
@@ -369,4 +427,5 @@ class RpcDispatcher:
         self.register("inspect_media", inspect_media_handler)
         self.register("merge_streams", merge_streams_handler)
         self.register("convert_format", convert_format_handler)
+        self.register("generate_thumbnail", generate_thumbnail_handler)
 

@@ -1,12 +1,28 @@
-import { app, BrowserWindow, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from "electron";
 import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 import type {
   DiscoveredMediaItem,
   MediaFormatInfoPayload,
+  QuerySavedMediaParams,
   SystemInfo,
 } from "../shared/types";
 import { PythonBridge } from "./python-bridge";
+
+// Register media-loader custom scheme before app is ready for local media streaming
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "media-loader",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: false,
+    },
+  },
+]);
 
 let mainWindow: BrowserWindow | null = null;
 const pythonBridge = new PythonBridge();
@@ -41,7 +57,8 @@ function setupSecurityHeaders(): void {
           "default-src 'self'; " +
             "script-src 'self'; " +
             "style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data: https: blob:; " +
+            "img-src 'self' data: https: blob: media-loader:; " +
+            "media-src 'self' data: https: blob: media-loader:; " +
             "font-src 'self' data:; " +
             "connect-src 'self' ws://localhost:5173 http://localhost:5173;",
         ],
@@ -184,6 +201,44 @@ function registerIpcHandlers(): void {
         input_path: inputPath,
         output_path: outputPath,
         target_format: targetFormat,
+      });
+    }
+  );
+
+  ipcMain.handle("python:querySavedMedia", async (_event, params?: QuerySavedMediaParams) => {
+    return pythonBridge.sendRequest("query_saved_media", params || {});
+  });
+
+  ipcMain.handle(
+    "python:generateThumbnail",
+    async (
+      _event,
+      sourcePath: string,
+      itemId: string,
+      mediaType?: string,
+      forceRegenerate?: boolean,
+      timestampSec?: number
+    ) => {
+      return pythonBridge.sendRequest("generate_thumbnail", {
+        source_path: sourcePath,
+        item_id: itemId,
+        media_type: mediaType,
+        force_regenerate: forceRegenerate,
+        timestamp_sec: timestampSec,
+      });
+    }
+  );
+
+  ipcMain.handle("python:exportMediaMetadata", async (_event, mediaId: string) => {
+    return pythonBridge.sendRequest("export_media_metadata", { media_id: mediaId });
+  });
+
+  ipcMain.handle(
+    "python:deleteDownloadedMedia",
+    async (_event, taskId: string, deleteFileFromDisk?: boolean) => {
+      return pythonBridge.sendRequest("delete_downloaded_media", {
+        task_id: taskId,
+        delete_file_from_disk: deleteFileFromDisk ?? true,
       });
     }
   );
@@ -343,6 +398,33 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   setupSecurityHeaders();
   registerIpcHandlers();
+
+  // Register protocol handler for streaming local video, audio, and images to renderer
+  protocol.handle("media-loader", (request) => {
+    try {
+      const parsed = new URL(request.url);
+      let filePath = "";
+      if (parsed.searchParams.has("path")) {
+        filePath = decodeURIComponent(parsed.searchParams.get("path") || "");
+      } else {
+        let p = decodeURIComponent(parsed.pathname);
+        if (p.startsWith("/") && p.length > 2 && p[2] === ":") {
+          p = p.slice(1);
+        }
+        filePath = p;
+      }
+
+      filePath = path.normalize(filePath);
+      if (!fs.existsSync(filePath)) {
+        return new Response("Not found", { status: 404 });
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch (err) {
+      console.warn("[desktop] media-loader request failed:", err);
+      return new Response("Internal error", { status: 500 });
+    }
+  });
 
   try {
     await pythonBridge.start();

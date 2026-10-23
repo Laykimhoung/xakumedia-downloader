@@ -254,33 +254,125 @@ class MediaRepository:
         offset: int = 0,
     ) -> list[MediaItem]:
         """Query bookmarked media items from the media library."""
+        return self.query_saved_media(media_type=media_type, limit=limit, offset=offset)
+
+    def query_saved_media(
+        self,
+        query: str | None = None,
+        media_type: str | None = None,
+        container: str | None = None,
+        sort_by: str = "newest",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[MediaItem]:
+        """Search, filter, and sort bookmarked media items in the media library."""
         conn = get_db_connection(self.db_path)
         try:
             cursor = conn.cursor()
-            if media_type:
-                cursor.execute(
-                    """
-                    SELECT * FROM media_items
-                    WHERE is_saved = 1 AND media_type = ?
-                    ORDER BY created_at DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (media_type, limit, offset),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT * FROM media_items
-                    WHERE is_saved = 1
-                    ORDER BY created_at DESC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (limit, offset),
-                )
+            conditions = ["is_saved = 1"]
+            params: list[Any] = []
+
+            if media_type and media_type.lower() != "all":
+                conditions.append("media_type = ?")
+                params.append(media_type.lower())
+
+            if query and query.strip():
+                q = f"%{query.strip()}%"
+                conditions.append("(title LIKE ? OR author LIKE ? OR source_url LIKE ?)")
+                params.extend([q, q, q])
+
+            if container and container.lower() != "all":
+                c = f"%{container.lower().strip()}%"
+                conditions.append("LOWER(available_formats_json) LIKE ?")
+                params.append(c)
+
+            where_clause = " AND ".join(conditions)
+
+            # Map sort keys to safe SQL ORDER BY clauses
+            sort_map = {
+                "newest": "created_at DESC",
+                "oldest": "created_at ASC",
+                "title": "title ASC, created_at DESC",
+                "size_desc": "filesize_bytes DESC, created_at DESC",
+                "size_asc": "filesize_bytes ASC, created_at DESC",
+            }
+            order_clause = sort_map.get(sort_by, "created_at DESC")
+
+            sql = (
+                f"SELECT * FROM media_items WHERE {where_clause} "
+                f"ORDER BY {order_clause} LIMIT ? OFFSET ?"
+            )
+            params.extend([limit, offset])
+
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
             return [self._row_to_media_item(r) for r in rows]
         finally:
             conn.close()
+
+    def export_media_metadata(self, media_id: str) -> dict[str, Any]:
+        """Export comprehensive metadata and download task history for a media item."""
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM media_items WHERE id = ?", (media_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise DatabaseError(f"Media item with ID '{media_id}' does not exist.")
+            item = self._row_to_media_item(row)
+
+            # Query download task history if present
+            cursor.execute(
+                "SELECT * FROM download_tasks WHERE media_id = ? ORDER BY created_at DESC LIMIT 1",
+                (media_id,),
+            )
+            task_row = cursor.fetchone()
+            task_data = dict(task_row) if task_row else None
+
+            return {
+                "media_item": item.model_dump(mode="json"),
+                "download_task": task_data,
+                "exported_at": datetime.now(UTC).isoformat(),
+            }
+        finally:
+            conn.close()
+
+    def delete_downloaded_media(
+        self,
+        task_id: str,
+        delete_file_from_disk: bool = True,
+    ) -> dict[str, Any]:
+        """Remove a download task and optionally delete its associated files from disk."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM download_tasks WHERE id = ?", (task_id,))
+            task_row = cursor.fetchone()
+            if not task_row:
+                raise DatabaseError(f"Download task with ID '{task_id}' does not exist.")
+
+            destination_path = task_row["destination_path"]
+            temp_path = task_row["temp_path"]
+            file_deleted = False
+
+            if delete_file_from_disk:
+                for p_str in (destination_path, temp_path):
+                    if p_str:
+                        p = Path(p_str)
+                        if p.exists() and p.is_file():
+                            try:
+                                p.unlink(missing_ok=True)
+                                file_deleted = True
+                                logger.info(f"Deleted local file from disk: {p}")
+                            except Exception as err:
+                                logger.warning(f"Failed to delete file {p}: {err}")
+
+            conn.execute("DELETE FROM download_tasks WHERE id = ?", (task_id,))
+
+            return {
+                "task_id": task_id,
+                "deleted": True,
+                "file_deleted": file_deleted,
+                "path": destination_path,
+            }
 
     def toggle_save_media(self, media_id: str) -> bool:
         """Toggle the bookmark state of a media item and return the new saved state."""

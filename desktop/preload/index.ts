@@ -4,9 +4,11 @@ import type {
   ClassifyUrlResult,
   ClearScanHistoryResult,
   ConvertFormatResult,
+  DeleteDownloadedMediaResult,
   DesktopApi,
   DiscoveredMediaItem,
   DownloadTaskRecord,
+  ExportMetadataResult,
   FFmpegInfoResult,
   GetDownloadTasksResult,
   InspectMediaResult,
@@ -16,10 +18,12 @@ import type {
   PythonBridgeStatus,
   PythonPingResult,
   PythonSystemInfoResult,
+  QuerySavedMediaParams,
   SavedMediaResult,
   ScanHistoryResult,
   StartDownloadResult,
   SystemInfo,
+  ThumbnailResult,
   ToggleSaveResult,
 } from "../shared/types";
 
@@ -153,6 +157,39 @@ const api: DesktopApi = {
       outputPath,
       targetFormat
     );
+  },
+  querySavedMedia: async (params?: QuerySavedMediaParams): Promise<SavedMediaResult> => {
+    return ipcRenderer.invoke("python:querySavedMedia", params);
+  },
+  generateThumbnail: async (
+    sourcePath: string,
+    itemId: string,
+    mediaType?: string,
+    forceRegenerate?: boolean,
+    timestampSec?: number
+  ): Promise<ThumbnailResult> => {
+    return ipcRenderer.invoke(
+      "python:generateThumbnail",
+      sourcePath,
+      itemId,
+      mediaType,
+      forceRegenerate,
+      timestampSec
+    );
+  },
+  exportMediaMetadata: async (mediaId: string): Promise<ExportMetadataResult> => {
+    return ipcRenderer.invoke("python:exportMediaMetadata", mediaId);
+  },
+  deleteDownloadedMedia: async (
+    taskId: string,
+    deleteFileFromDisk?: boolean
+  ): Promise<DeleteDownloadedMediaResult> => {
+    return ipcRenderer.invoke("python:deleteDownloadedMedia", taskId, deleteFileFromDisk);
+  },
+  toMediaLoaderUrl: (localPath: string): string => {
+    if (!localPath) return "";
+    const normalized = localPath.replace(/\\/g, "/");
+    return `media-loader://local/${normalized.startsWith("/") ? normalized.slice(1) : normalized}`;
   },
 };
 

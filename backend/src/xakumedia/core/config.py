@@ -49,6 +49,11 @@ class AppConfig(BaseModel):
         return self.download_dir / "images"
 
     @property
+    def thumbnails_dir(self) -> Path:
+        """Dedicated directory for cached media thumbnails."""
+        return self.cache_dir / "thumbnails"
+
+    @property
     def logs_dir(self) -> Path:
         """Dedicated directory for application log files."""
         return self.data_dir / "logs"
@@ -62,6 +67,7 @@ class AppConfig(BaseModel):
         """Create standard application directories if they do not yet exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.thumbnails_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.video_download_dir.mkdir(parents=True, exist_ok=True)
         self.image_download_dir.mkdir(parents=True, exist_ok=True)
