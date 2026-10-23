@@ -19,6 +19,12 @@
     "test:python": ".\\backend\\.venv\\Scripts\\pytest backend/",
     "lint:python": ".\\backend\\.venv\\Scripts\\ruff check backend/",
     "install:frontend": "npm --prefix frontend install",
-    "install:backend": ".\\backend\\.venv\\Scripts\\pip install -e \"backend[dev]\""
+    "install:backend": ".\\backend\\.venv\\Scripts\\pip install -e \"backend[dev]\"",
+    "server:python": "node scripts/run-python-server.mjs",
+    "verify": "node scripts/verify-env.mjs",
+    "clean": "node scripts/clean.mjs",
+    "clean:dry": "node scripts/clean.mjs --dry-run",
+    "db:stats": "node scripts/db-tool.mjs stats",
+    "run:ps1": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run.ps1"
   }
 }
