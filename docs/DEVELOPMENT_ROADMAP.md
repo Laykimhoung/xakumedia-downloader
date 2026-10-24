@@ -107,6 +107,7 @@ This document outlines the sequential, milestone-by-milestone development path f
 
 ### Milestone 21: Performance & Reliability
 - **Goal:** Benchmark 1000+ item scans, concurrent downloads, and memory stability.
+- **Status:** Completed.
 
 ### Milestone 22: Automated Testing & Regression Review
 - **Goal:** Full test suite execution (pytest, typecheck, linting).

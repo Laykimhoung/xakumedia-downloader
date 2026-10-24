@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import {
   LayoutDashboard,
   Search,
@@ -39,6 +39,8 @@ import {
   Square,
   SlidersHorizontal,
   Gauge,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
@@ -153,6 +155,22 @@ export const App: React.FC = () => {
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set());
   const [recoveryBanner, setRecoveryBanner] = useState<RecoverySummary | null>(null);
   const [isRecovering, setIsRecovering] = useState<boolean>(false);
+
+  // Performance & Windowing State (Milestone 21)
+  const [galleryPage, setGalleryPage] = useState<number>(1);
+  const [queuePage, setQueuePage] = useState<number>(1);
+
+  // Memoized completed downloads map for O(1) lookup in library grid
+  const completedDownloadsMap = useMemo(() => {
+    const map = new Map<string, DownloadTaskRecord>();
+    for (const t of downloadTasks) {
+      if (t.status === "completed") {
+        if (t.media_item?.id) map.set(t.media_item.id, t);
+        if (t.id) map.set(t.id, t);
+      }
+    }
+    return map;
+  }, [downloadTasks]);
 
   const formatBytes = (bytes?: number | null): string => {
     if (!bytes) return "Unknown size";
@@ -432,6 +450,7 @@ export const App: React.FC = () => {
     try {
       const res = await window.api.classifyUrl(urlToScan.trim());
       setScanResult(res);
+      setGalleryPage(1);
       if (res.media_item?.available_formats && res.media_item.available_formats.length > 0) {
         setSelectedFormat(res.media_item.available_formats[0]);
       } else {
@@ -1314,132 +1333,190 @@ export const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Grid of gallery items */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-80 overflow-y-auto pr-1">
-                    {scanResult.media_items.map((item, idx) => {
-                      const isSelected = selectedGalleryIds.has(item.id);
-                      return (
-                        <div
-                          key={item.id || idx}
-                          onClick={() => {
-                            setSelectedGalleryIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            });
-                          }}
-                          className={`rounded-lg p-2 flex flex-col space-y-2 cursor-pointer transition-all ${
-                            isSelected
-                              ? "bg-brand-red/10 border border-brand-red/80 ring-1 ring-brand-red/40"
-                              : "bg-brand-black/70 border border-brand-dark hover:border-brand-dark/90"
-                          }`}
-                        >
-                          <div className="w-full h-24 rounded bg-brand-black/90 border border-brand-dark/60 overflow-hidden flex items-center justify-center relative">
-                            {item.thumbnail_url ? (
-                              <img
-                                src={item.thumbnail_url}
-                                alt={item.title || `Item ${idx + 1}`}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : item.media_type === "video" ? (
-                              <Film className="h-6 w-6 text-neutral-400" />
-                            ) : (
-                              <ImageIcon className="h-6 w-6 text-neutral-400" />
-                            )}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedGalleryIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(item.id)) next.delete(item.id);
-                                  else next.add(item.id);
-                                  return next;
-                                });
-                              }}
-                              className={`absolute top-1 left-1 p-1 rounded-md transition-all ${
-                                isSelected
-                                  ? "bg-brand-red text-white"
-                                  : "bg-black/60 text-neutral-400 hover:text-white"
-                              }`}
-                              title={isSelected ? "Deselect item" : "Select item"}
-                            >
-                              {isSelected ? (
-                                <CheckSquare className="h-3 w-3" />
-                              ) : (
-                                <Square className="h-3 w-3" />
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleBookmark(item);
-                              }}
-                              className={`absolute top-1 right-8 p-1 rounded-md transition-all ${
-                                bookmarkedIds.has(item.id)
-                                  ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
-                                  : "bg-black/60 text-neutral-300 hover:text-white"
-                              }`}
-                              title={
-                                bookmarkedIds.has(item.id)
-                                  ? "Saved in Library"
-                                  : "Bookmark to Library"
-                              }
-                            >
-                              <Bookmark
-                                className={`h-3 w-3 ${
-                                  bookmarkedIds.has(item.id) ? "fill-current" : ""
+                  {/* Grid of gallery items (paginated for high performance) */}
+                  {(() => {
+                    const GALLERY_PAGE_SIZE = 48;
+                    const totalGalleryPages = Math.ceil(
+                      (scanResult.media_items.length || 0) / GALLERY_PAGE_SIZE
+                    );
+                    const pagedGalleryItems = scanResult.media_items.slice(
+                      (galleryPage - 1) * GALLERY_PAGE_SIZE,
+                      galleryPage * GALLERY_PAGE_SIZE
+                    );
+
+                    return (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-96 overflow-y-auto pr-1">
+                          {pagedGalleryItems.map((item, pageIdx) => {
+                            const globalIdx =
+                              (galleryPage - 1) * GALLERY_PAGE_SIZE + pageIdx;
+                            const isSelected = selectedGalleryIds.has(item.id);
+                            return (
+                              <div
+                                key={item.id || globalIdx}
+                                onClick={() => {
+                                  setSelectedGalleryIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.id)) next.delete(item.id);
+                                    else next.add(item.id);
+                                    return next;
+                                  });
+                                }}
+                                className={`rounded-lg p-2 flex flex-col space-y-2 cursor-pointer transition-all ${
+                                  isSelected
+                                    ? "bg-brand-red/10 border border-brand-red/80 ring-1 ring-brand-red/40"
+                                    : "bg-brand-black/70 border border-brand-dark hover:border-brand-dark/90"
                                 }`}
-                              />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenPreview(item);
-                              }}
-                              className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/90 text-neutral-300 hover:text-white transition-all shadow-sm"
-                              title="Preview item"
-                            >
-                              <Eye className="h-3 w-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleStartDownload(item);
-                              }}
-                              disabled={downloadingIds.has(item.id)}
-                              className="absolute bottom-1 left-1 p-1 rounded-md bg-black/70 hover:bg-brand-red text-neutral-300 hover:text-white transition-all shadow-sm"
-                              title="Download single item"
-                            >
-                              {downloadingIds.has(item.id) ? (
-                                <Loader2 className="h-3 w-3 animate-spin text-white" />
-                              ) : (
-                                <Download className="h-3 w-3" />
-                              )}
-                            </button>
-                            <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
-                              #{idx + 1}
+                              >
+                                <div className="w-full h-24 rounded bg-brand-black/90 border border-brand-dark/60 overflow-hidden flex items-center justify-center relative">
+                                  {item.thumbnail_url ? (
+                                    <img
+                                      src={item.thumbnail_url}
+                                      alt={item.title || `Item ${globalIdx + 1}`}
+                                      loading="lazy"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : item.media_type === "video" ? (
+                                    <Film className="h-6 w-6 text-neutral-400" />
+                                  ) : (
+                                    <ImageIcon className="h-6 w-6 text-neutral-400" />
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedGalleryIds((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(item.id)) next.delete(item.id);
+                                        else next.add(item.id);
+                                        return next;
+                                      });
+                                    }}
+                                    className={`absolute top-1 left-1 p-1 rounded-md transition-all ${
+                                      isSelected
+                                        ? "bg-brand-red text-white"
+                                        : "bg-black/60 text-neutral-400 hover:text-white"
+                                    }`}
+                                    title={isSelected ? "Deselect item" : "Select item"}
+                                  >
+                                    {isSelected ? (
+                                      <CheckSquare className="h-3 w-3" />
+                                    ) : (
+                                      <Square className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleBookmark(item);
+                                    }}
+                                    className={`absolute top-1 right-8 p-1 rounded-md transition-all ${
+                                      bookmarkedIds.has(item.id)
+                                        ? "bg-brand-red text-white shadow-sm shadow-brand-red/40"
+                                        : "bg-black/60 text-neutral-300 hover:text-white"
+                                    }`}
+                                    title={
+                                      bookmarkedIds.has(item.id)
+                                        ? "Saved in Library"
+                                        : "Bookmark to Library"
+                                    }
+                                  >
+                                    <Bookmark
+                                      className={`h-3 w-3 ${
+                                        bookmarkedIds.has(item.id) ? "fill-current" : ""
+                                      }`}
+                                    />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenPreview(item);
+                                    }}
+                                    className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-black/90 text-neutral-300 hover:text-white transition-all shadow-sm"
+                                    title="Preview item"
+                                  >
+                                    <Eye className="h-3 w-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStartDownload(item);
+                                    }}
+                                    disabled={downloadingIds.has(item.id)}
+                                    className="absolute bottom-1 left-1 p-1 rounded-md bg-black/70 hover:bg-brand-red text-neutral-300 hover:text-white transition-all shadow-sm"
+                                    title="Download single item"
+                                  >
+                                    {downloadingIds.has(item.id) ? (
+                                      <Loader2 className="h-3 w-3 animate-spin text-white" />
+                                    ) : (
+                                      <Download className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                  <span className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[9px] font-mono text-neutral-300">
+                                    #{globalIdx + 1}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] font-mono space-y-0.5">
+                                  <p className="truncate text-brand-white font-medium">
+                                    {item.title || `Item ${globalIdx + 1}`}
+                                  </p>
+                                  <div className="flex items-center justify-between text-[10px] text-neutral-400">
+                                    <span className="uppercase">
+                                      {item.available_formats[0]?.container || "IMG"}
+                                    </span>
+                                    <span>{formatBytes(item.filesize_bytes)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {totalGalleryPages > 1 && (
+                          <div className="flex items-center justify-between border-t border-brand-dark/50 pt-3 text-xs font-mono">
+                            <span className="text-neutral-400">
+                              Showing {(galleryPage - 1) * GALLERY_PAGE_SIZE + 1}–
+                              {Math.min(
+                                galleryPage * GALLERY_PAGE_SIZE,
+                                scanResult.media_items.length
+                              )}{" "}
+                              of {scanResult.media_items.length} items
                             </span>
-                          </div>
-                          <div className="text-[11px] font-mono space-y-0.5">
-                            <p className="truncate text-brand-white font-medium">
-                              {item.title || `Item ${idx + 1}`}
-                            </p>
-                            <div className="flex items-center justify-between text-[10px] text-neutral-400">
-                              <span className="uppercase">
-                                {item.available_formats[0]?.container || "IMG"}
+                            <div className="flex items-center space-x-1.5">
+                              <button
+                                type="button"
+                                disabled={galleryPage <= 1}
+                                onClick={() => setGalleryPage((p) => Math.max(1, p - 1))}
+                                className="px-2.5 py-1 bg-brand-dark/80 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed border border-brand-dark rounded text-neutral-300 flex items-center space-x-1 transition-all"
+                              >
+                                <ChevronLeft className="h-3.5 w-3.5" />
+                                <span>Prev</span>
+                              </button>
+                              <span className="px-2.5 py-1 bg-brand-black/80 border border-brand-dark rounded text-neutral-200">
+                                Page {galleryPage} / {totalGalleryPages}
                               </span>
-                              <span>{formatBytes(item.filesize_bytes)}</span>
+                              <button
+                                type="button"
+                                disabled={galleryPage >= totalGalleryPages}
+                                onClick={() =>
+                                  setGalleryPage((p) =>
+                                    Math.min(totalGalleryPages, p + 1)
+                                  )
+                                }
+                                className="px-2.5 py-1 bg-brand-dark/80 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed border border-brand-dark rounded text-neutral-300 flex items-center space-x-1 transition-all"
+                              >
+                                <span>Next</span>
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                   <div className="flex items-center justify-between border-t border-brand-dark/50 pt-2 text-[11px] font-mono">
                     <span className="text-neutral-400">
@@ -2104,11 +2181,7 @@ export const App: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   {savedMediaItems.map((item) => {
-                    const completedDl = downloadTasks.find(
-                      (t) =>
-                        (t.media_item.id === item.id || t.id === item.id) &&
-                        t.status === "completed"
-                    );
+                    const completedDl = completedDownloadsMap.get(item.id);
                     const isDownloaded = Boolean(completedDl?.destination_path);
 
                     return (
@@ -2128,6 +2201,7 @@ export const App: React.FC = () => {
                               <img
                                 src={item.thumbnail_url}
                                 alt={item.title || "Media preview"}
+                                loading="lazy"
                                 className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
                               />
                             ) : item.media_type === "video" ? (
@@ -2462,7 +2536,10 @@ export const App: React.FC = () => {
                 ].map((tab) => (
                   <button
                     key={tab.id}
-                    onClick={() => setDownloadFilter(tab.id as typeof downloadFilter)}
+                    onClick={() => {
+                      setDownloadFilter(tab.id as typeof downloadFilter);
+                      setQueuePage(1);
+                    }}
                     className={`px-3 py-1 rounded-md text-xs font-mono uppercase tracking-wider transition-all flex items-center space-x-1.5 ${
                       downloadFilter === tab.id
                         ? "bg-brand-red text-white font-semibold shadow-sm shadow-brand-red/30"
@@ -2524,9 +2601,16 @@ export const App: React.FC = () => {
                   );
                 }
 
+                const QUEUE_PAGE_SIZE = 30;
+                const totalQueuePages = Math.ceil(filtered.length / QUEUE_PAGE_SIZE);
+                const pagedTasks = filtered.slice(
+                  (queuePage - 1) * QUEUE_PAGE_SIZE,
+                  queuePage * QUEUE_PAGE_SIZE
+                );
+
                 return (
                   <div className="space-y-3">
-                    {filtered.map((task) => {
+                    {pagedTasks.map((task) => {
                       const isRunning =
                         task.status === "downloading" ||
                         task.status === "queued" ||
@@ -2548,6 +2632,7 @@ export const App: React.FC = () => {
                                   <img
                                     src={task.media_item.thumbnail_url}
                                     alt={task.media_item.title || "Download"}
+                                    loading="lazy"
                                     className="w-full h-full object-cover"
                                   />
                                 ) : task.media_item.media_type === "video" ? (
@@ -2812,6 +2897,44 @@ export const App: React.FC = () => {
                         </div>
                       );
                     })}
+
+                    {totalQueuePages > 1 && (
+                      <div className="flex items-center justify-between border-t border-brand-dark/50 pt-3 text-xs font-mono">
+                        <span className="text-neutral-400">
+                          Showing {(queuePage - 1) * QUEUE_PAGE_SIZE + 1}–
+                          {Math.min(
+                            queuePage * QUEUE_PAGE_SIZE,
+                            filtered.length
+                          )}{" "}
+                          of {filtered.length} tasks
+                        </span>
+                        <div className="flex items-center space-x-1.5">
+                          <button
+                            type="button"
+                            disabled={queuePage <= 1}
+                            onClick={() => setQueuePage((p) => Math.max(1, p - 1))}
+                            className="px-2.5 py-1 bg-brand-dark/80 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed border border-brand-dark rounded text-neutral-300 flex items-center space-x-1 transition-all"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            <span>Prev</span>
+                          </button>
+                          <span className="px-2.5 py-1 bg-brand-black/80 border border-brand-dark rounded text-neutral-200">
+                            Page {queuePage} / {totalQueuePages}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={queuePage >= totalQueuePages}
+                            onClick={() =>
+                              setQueuePage((p) => Math.min(totalQueuePages, p + 1))
+                            }
+                            className="px-2.5 py-1 bg-brand-dark/80 hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed border border-brand-dark rounded text-neutral-300 flex items-center space-x-1 transition-all"
+                          >
+                            <span>Next</span>
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

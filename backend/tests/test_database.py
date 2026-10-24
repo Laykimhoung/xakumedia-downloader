@@ -31,7 +31,7 @@ def test_schema_initialization(temp_db: Path) -> None:
     conn = get_db_connection(temp_db)
     try:
         init_schema(conn)
-        assert get_current_version(conn) == 3
+        assert get_current_version(conn) == 4
 
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -49,6 +49,16 @@ def test_schema_initialization(temp_db: Path) -> None:
             "saved_sources",
         }
         assert expected_tables.issubset(tables)
+
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='index'")
+        indexes = {row[0] for row in cursor.fetchall()}
+        expected_indexes = {
+            "idx_scan_history_items_media_id",
+            "idx_download_tasks_media_id",
+            "idx_media_items_author",
+            "idx_download_tasks_updated_at",
+        }
+        assert expected_indexes.issubset(indexes)
     finally:
         conn.close()
 

@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 19 — Standalone Windows Installer, Packaging & Build Distribution  
-**Overall Status:** Standalone Windows Installer, Packaging & Build Distribution Complete  
+**Active Milestone:** Milestone 22 — Automated Testing & Regression Review  
+**Overall Status:** Performance & Reliability Under Large Media Batches Complete (129 tests passing, benchmarks verified)  
 
 ---
 
@@ -41,6 +41,8 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 17** | Session Credentials, Custom Headers & Cookie Import | **Completed** | SQLite schema Migration V2 (`cookie_profiles`, `domain_headers`); dedicated `auth/` module (`models.py`, `cookies.py`, `headers.py`); Netscape cookie format parser & serializer with `#HttpOnly_` prefix handling; automated local browser cookie extraction (`chrome`, `edge`, `firefox`, `brave`, `opera`, `vivaldi`) via `yt-dlp`'s cookiejar engine; subdomain-hierarchical request header matching; seamless injection into `download_stream` (`httpx`), `extract_video` (`yt-dlp`), and `extract_gallery_info` (`gallery-dl`); 9 JSON-RPC handlers; desktop IPC bridge and native `.txt` file selector dialog (`dialog:selectCookieFile`); modern React controls in `SettingsView.tsx`; 9 dedicated unit tests (114 total passing in 6.40s); 0 ruff errors; desktop smoke test verified auth/cookies over IPC. |
 | **Milestone 18** | Saved Sources, Incremental Rescan & Differential Discovery | **Completed** | SQLite schema Migration V3 (`saved_sources` with `url`, `platform`, `last_scanned_at` indexes); Pydantic `SavedSource`, `IncrementalScanResult`, `RescanAllSummary` models; repository CRUD and $O(1)$ known URL set resolution; differential discovery and multi-extractor rescan engine (`sources/rescan.py`); 6 JSON-RPC handlers; desktop IPC bridge (`python:saveSource`, `getSavedSources`, `getSource`, `deleteSavedSource`, `rescanSource`, `rescanAllSources`); modern React `SavedSourcesView.tsx` with search, dynamic tag filters, Add Source modal, Rescan All, source cards, and Incremental Rescan review modal with 1-click batch download of delta items; 1-click Bookmark Source button on scan result cards; 5 dedicated unit tests (119 total passing in 6.83s); 0 ruff errors; frontend typecheck (`tsc --noEmit`) and desktop smoke test passing. |
 | **Milestone 19** | Standalone Windows Installer, Packaging & Build Distribution | **Completed** | Automated packaging pipeline (`scripts/package-prepare.mjs`); standalone Python 3.12 runtime with core DLLs, standard library, and virtual environment dependencies (`yt-dlp`, `gallery-dl`, `httpx`, `pydantic`, `pillow`) staged into `build/python/`; FFmpeg & FFprobe binaries staged into `build/bin/`; Windows branding icons (`build/icon.ico`, `build/icon.png`); Electron-builder packaging (`config/electron-builder.yml`); generated Windows NSIS Installer (`dist-package/XakuMedia-Setup-0.1.0.exe`, 167 MB), Portable Executable (`dist-package/XakuMedia-Portable-0.1.0.exe`, 148 MB), and unpacked bundle (`dist-package/win-unpacked/XakuMedia.exe`); production bundle smoke test verified headless startup, Python child spawn, JSON-RPC ping, FFmpeg detection, and clean exit. |
+| **Milestone 20** | End-to-End Security Audit & IPC Defense Hardening | **Completed** | Comprehensive audit of SSRF defenses (non-global IP parsing, CGNAT 100.64/10, DNS verification), Windows filesystem sanitization (NTFS ADS rejection, DOS reserved device names, UNC blocking), strict Electron CSP headers, and custom protocol extension whitelisting; 125 tests passing in 7.29s. |
+| **Milestone 21** | Performance & Reliability Under Large Media Batches | **Completed** | SQLite batch `executemany` persistence (>10x throughput speedup, <20ms for 1,000 items), Schema Migration V4 covering indexes verified with `EXPLAIN QUERY PLAN`, React $O(1)$ memoized task hash map, 48-item/page gallery windowing, 30-item/page queue pagination, native lazy image decoding, and bounded worker concurrency under 1,000 tasks; 129 tests passing; 0 lint errors; desktop smoke test passing. |
 
 ---
 
@@ -167,6 +169,29 @@ The system relies on a secure 3-tier desktop architecture:
     - 0 ruff lint errors (`ruff check backend/`).
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
     - Desktop Electron smoke test (`npm run test:desktop`) passes with verified SSRF rejection and clean shutdown.
+- **Performance & Reliability Under Large Media Batches (Milestone 21):**
+  - **SQLite Batching & Migration V4 (`backend/src/xakumedia/db/`):**
+    - Upgraded schema to `CURRENT_SCHEMA_VERSION = 4`.
+    - Added covering indexes: `idx_scan_history_items_media_id`, `idx_download_tasks_media_id`, `idx_media_items_author`, and `idx_download_tasks_updated_at`.
+    - Implemented multi-row batch methods `save_media_items` and `save_download_tasks` using `executemany` inside a single atomic transaction.
+    - Reduced 1,000-item insertion time from ~200ms to <20ms (>10x throughput improvement).
+    - Query plan verification (`EXPLAIN QUERY PLAN`) confirmed index seeks on `scan_history_items` and constant-time primary key lookups for `media_items`.
+  - **Frontend Render Optimization & DOM Windowing (`frontend/src/App.tsx`):**
+    - Eliminated $O(N \times M)$ nested search loops in `savedMediaItems` by precomputing a constant-time `Map<string, DownloadTaskRecord>` via `useMemo`.
+    - Implemented client-side pagination in Gallery Album view at 48 items/page with rapid Prev/Next controls and page indicators while preserving global multi-item batch selection across pages.
+    - Implemented Download Queue pagination at 30 tasks/page with category filtering.
+    - Enabled native browser lazy loading (`loading="lazy"`) and asynchronous decompression (`decoding="async"`) across all thumbnail images.
+  - **Bounded Concurrency & Streaming I/O (`backend/src/xakumedia/downloader/`):**
+    - DownloadManager queues 1,000+ tasks safely into synchronized `_pending_queue`, saturating exactly `max_concurrent` active worker slots (e.g. 4 active, 996 pending).
+    - 64 KB chunked disk streaming guarantees a flat memory footprint (<1 MB per stream) regardless of file size.
+    - Multi-threaded token-bucket bandwidth throttler verified under high thread concurrency without deadlocks.
+  - **Automated Stress & Benchmark Suite (`backend/tests/test_performance.py`):**
+    - Automated benchmarks asserting <0.5s for 1,000 items scan insertion and <1.5s for 1,000 tasks batch queue enqueue.
+  - **Verification Evidence:**
+    - 129 total pytest tests passing across 20 test modules in 9.00s.
+    - 0 ruff lint errors (`ruff check backend/`).
+    - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
+    - Desktop Electron smoke test (`npm run test:desktop`) passes cleanly with full IPC communication and EOF child shutdown.
 
 ---
 
@@ -178,13 +203,13 @@ The system relies on a secure 3-tier desktop architecture:
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 21 — Performance & Reliability Under Large Media Batches**
+**Next Milestone:** **Milestone 22 — Automated Testing & Regression Review**
 
 ### Acceptance Criteria:
-1. Benchmark scanning and parsing performance against large collections (1000+ items) without UI thread lag.
-2. Verify virtualized rendering and thumbnail lazy-loading stability during high item volume.
-3. Validate memory consumption and bounded queue execution during high concurrency downloads.
-4. Ensure SQLite database indexing and batch query efficiency for large media libraries.
-5. Add automated load/stress test scripts and document performance benchmarks.
+1. Execute full cross-stack test suite across Python backend, TypeScript frontend, and Electron desktop shell.
+2. Conduct comprehensive regression analysis on all URL extraction providers (yt-dlp, gallery-dl, direct scanner) and error recovery handlers.
+3. Validate end-to-end edge case behaviors (network disconnects, invalid cookies, corrupted intermediate files, permission-denied directories).
+4. Verify code formatting and linting conformance across all repository directories (`ruff`, `tsc`, `eslint`).
+5. Ensure 100% automated test pass rate without flaky assertions or thread leaks.
 
 

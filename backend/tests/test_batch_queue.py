@@ -220,8 +220,13 @@ def test_clear_completed(temp_dest_dir: Path, temp_db: MediaRepository) -> None:
         item1 = create_dummy_item("done-1")
         item2 = create_dummy_item("failed-2")
 
-        t1 = manager.start_download(item1, destination_path=temp_dest_dir / "images" / "done.jpg")
-        t2 = manager.start_download(item2, destination_path=temp_dest_dir / "images" / "fail.jpg")
+        with patch.object(manager._executor, "submit"):
+            t1 = manager.start_download(
+                item1, destination_path=temp_dest_dir / "images" / "done.jpg"
+            )
+            t2 = manager.start_download(
+                item2, destination_path=temp_dest_dir / "images" / "fail.jpg"
+            )
 
         t1.status = TaskStatus.COMPLETED
         temp_db.save_download_task(t1)

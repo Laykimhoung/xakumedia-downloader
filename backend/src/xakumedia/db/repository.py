@@ -66,6 +66,29 @@ class MediaRepository:
         scan_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
 
+        media_rows = []
+        junction_rows = []
+        for idx, item in enumerate(items):
+            media_rows.append(
+                (
+                    item.id,
+                    item.source_url,
+                    str(item.media_type),
+                    item.title,
+                    item.author,
+                    item.thumbnail_url,
+                    item.original_url,
+                    item.duration_seconds,
+                    item.width,
+                    item.height,
+                    item.filesize_bytes,
+                    json.dumps([f.model_dump() for f in item.available_formats]),
+                    json.dumps(item.metadata_extra),
+                    now,
+                )
+            )
+            junction_rows.append((scan_id, item.id, idx))
+
         with get_db_session(self.db_path) as conn:
             conn.execute(
                 """
@@ -89,8 +112,8 @@ class MediaRepository:
                 ),
             )
 
-            for idx, item in enumerate(items):
-                conn.execute(
+            if media_rows:
+                conn.executemany(
                     """
                     INSERT INTO media_items (
                         id, source_url, media_type, title, author,
@@ -104,30 +127,14 @@ class MediaRepository:
                         available_formats_json = excluded.available_formats_json,
                         metadata_extra_json = excluded.metadata_extra_json
                     """,
-                    (
-                        item.id,
-                        item.source_url,
-                        str(item.media_type),
-                        item.title,
-                        item.author,
-                        item.thumbnail_url,
-                        item.original_url,
-                        item.duration_seconds,
-                        item.width,
-                        item.height,
-                        item.filesize_bytes,
-                        json.dumps([f.model_dump() for f in item.available_formats]),
-                        json.dumps(item.metadata_extra),
-                        now,
-                    ),
+                    media_rows,
                 )
-
-                conn.execute(
+                conn.executemany(
                     """
                     INSERT OR IGNORE INTO scan_history_items (scan_id, media_id, item_order)
                     VALUES (?, ?, ?)
                     """,
-                    (scan_id, item.id, idx),
+                    junction_rows,
                 )
 
         logger.info(f"Saved scan result {scan_id} with {len(items)} items.")
@@ -211,11 +218,35 @@ class MediaRepository:
                 )
         return deleted
 
-    def save_media_item(self, item: MediaItem, is_saved: bool = True) -> None:
-        """Persist or bookmark a media item in the media library."""
+    def save_media_items(self, items: list[MediaItem], is_saved: bool = True) -> None:
+        """Persist or update multiple media items in a single batch transaction."""
+        if not items:
+            return
+
         now = datetime.now(UTC).isoformat()
+        rows = [
+            (
+                item.id,
+                item.source_url,
+                str(item.media_type),
+                item.title,
+                item.author,
+                item.thumbnail_url,
+                item.original_url,
+                item.duration_seconds,
+                item.width,
+                item.height,
+                item.filesize_bytes,
+                json.dumps([f.model_dump() for f in item.available_formats]),
+                json.dumps(item.metadata_extra),
+                1 if is_saved else 0,
+                now,
+            )
+            for item in items
+        ]
+
         with get_db_session(self.db_path) as conn:
-            conn.execute(
+            conn.executemany(
                 """
                 INSERT INTO media_items (
                     id, source_url, media_type, title, author,
@@ -231,24 +262,12 @@ class MediaRepository:
                     metadata_extra_json = excluded.metadata_extra_json,
                     is_saved = excluded.is_saved
                 """,
-                (
-                    item.id,
-                    item.source_url,
-                    str(item.media_type),
-                    item.title,
-                    item.author,
-                    item.thumbnail_url,
-                    item.original_url,
-                    item.duration_seconds,
-                    item.width,
-                    item.height,
-                    item.filesize_bytes,
-                    json.dumps([f.model_dump() for f in item.available_formats]),
-                    json.dumps(item.metadata_extra),
-                    1 if is_saved else 0,
-                    now,
-                ),
+                rows,
             )
+
+    def save_media_item(self, item: MediaItem, is_saved: bool = True) -> None:
+        """Persist or bookmark a single media item in the media library."""
+        self.save_media_items([item], is_saved=is_saved)
 
     def get_saved_media(
         self,
@@ -401,19 +420,47 @@ class MediaRepository:
             cursor = conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
             return cursor.rowcount > 0
 
-    def save_download_task(self, task: DownloadTask) -> None:
-        """Persist or update a task record in the download queue table."""
-        # Ensure media item is present
-        self.save_media_item(task.media_item, is_saved=False)
+    def save_download_tasks(self, tasks: list[DownloadTask]) -> None:
+        """Persist or update multiple task records in a single batch transaction."""
+        if not tasks:
+            return
+
+        # Ensure all referenced media items are present
+        self.save_media_items([t.media_item for t in tasks], is_saved=False)
 
         now = datetime.now(UTC).isoformat()
-        with get_db_session(self.db_path) as conn:
+        rows = []
+        for task in tasks:
             format_json = (
                 json.dumps(task.selected_format.model_dump())
                 if task.selected_format
                 else None
             )
-            conn.execute(
+            created_at_str = task.created_at.isoformat() if task.created_at else now
+            completed_at_str = (
+                task.completed_at.isoformat() if task.completed_at else None
+            )
+            rows.append(
+                (
+                    task.id,
+                    task.media_item.id,
+                    str(task.status),
+                    format_json,
+                    str(task.destination_path) if task.destination_path else None,
+                    str(task.temp_path) if task.temp_path else None,
+                    task.bytes_downloaded,
+                    task.total_bytes,
+                    task.progress_percent,
+                    task.error_message,
+                    task.retry_count,
+                    created_at_str,
+                    now,
+                    completed_at_str,
+                )
+            )
+
+        with get_db_session(self.db_path) as conn:
+            conn.executemany(
                 """
                 INSERT INTO download_tasks (
                     id, media_id, status, selected_format_json,
@@ -433,23 +480,12 @@ class MediaRepository:
                     updated_at = excluded.updated_at,
                     completed_at = excluded.completed_at
                 """,
-                (
-                    task.id,
-                    task.media_item.id,
-                    str(task.status),
-                    format_json,
-                    str(task.destination_path) if task.destination_path else None,
-                    str(task.temp_path) if task.temp_path else None,
-                    task.bytes_downloaded,
-                    task.total_bytes,
-                    task.progress_percent,
-                    task.error_message,
-                    task.retry_count,
-                    task.created_at.isoformat() if task.created_at else now,
-                    now,
-                    task.completed_at.isoformat() if task.completed_at else None,
-                ),
+                rows,
             )
+
+    def save_download_task(self, task: DownloadTask) -> None:
+        """Persist or update a single task record in the download queue table."""
+        self.save_download_tasks([task])
 
     def _row_to_download_task(self, row: Any) -> DownloadTask:
         """Helper to deserialize a sqlite3.Row into a typed DownloadTask model."""

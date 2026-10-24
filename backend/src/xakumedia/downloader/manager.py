@@ -251,9 +251,15 @@ class DownloadManager:
                 destination_path=dest,
                 temp_path=temp_path,
             )
-            self.repository.save_download_task(task)
             created_tasks.append(task)
             pending_items.append((task, url))
+
+        # Persist all batch tasks in a single high-performance database transaction
+        if hasattr(self.repository, "save_download_tasks"):
+            self.repository.save_download_tasks(created_tasks)
+        else:
+            for task in created_tasks:
+                self.repository.save_download_task(task)
 
         with self._lock:
             self._pending_queue.extend(pending_items)

@@ -7,7 +7,7 @@ from ..exceptions.base import DatabaseError
 
 logger = get_logger("db.schema")
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 MIGRATION_V1 = """
 -- Schema version tracking
@@ -142,6 +142,14 @@ CREATE INDEX IF NOT EXISTS idx_saved_sources_platform ON saved_sources(platform)
 CREATE INDEX IF NOT EXISTS idx_saved_sources_last_scanned ON saved_sources(last_scanned_at DESC);
 """
 
+MIGRATION_V4 = """
+-- Performance & Reliability Indexes for Large Media Batches (Milestone 21)
+CREATE INDEX IF NOT EXISTS idx_scan_history_items_media_id ON scan_history_items(media_id);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_media_id ON download_tasks(media_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_author ON media_items(author);
+CREATE INDEX IF NOT EXISTS idx_download_tasks_updated_at ON download_tasks(updated_at DESC);
+"""
+
 
 def get_current_version(conn: sqlite3.Connection) -> int:
     """Retrieve the current schema version from the database."""
@@ -183,6 +191,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (3)")
             conn.commit()
             logger.info("Database migration V3 applied successfully.")
+
+        if current_v < 4:
+            logger.info("Applying database migration V4...")
+            conn.executescript(MIGRATION_V4)
+            conn.execute("INSERT INTO schema_version (version) VALUES (4)")
+            conn.commit()
+            logger.info("Database migration V4 applied successfully.")
 
         # Self-healing column checks for pre-existing local databases
         cursor = conn.cursor()

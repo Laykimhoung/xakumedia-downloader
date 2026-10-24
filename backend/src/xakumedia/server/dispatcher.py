@@ -285,7 +285,7 @@ class RpcDispatcher:
 
             status_str = params.get("status")
             status = TaskStatus(status_str) if status_str else None
-            limit = int(params.get("limit", 50))
+            limit = int(params.get("limit", 250))
 
             tasks = default_download_manager.get_tasks(status=status, limit=limit)
             return {
