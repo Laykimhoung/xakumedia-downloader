@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 22 — Automated Testing & Regression Review  
-**Overall Status:** Performance & Reliability Under Large Media Batches Complete (129 tests passing, benchmarks verified)  
+**Active Milestone:** Milestone 23 — Final Release Review  
+**Overall Status:** Automated Testing & Regression Review Complete (140 tests passing, 0 lint errors, cross-stack CI verified)  
 
 ---
 
@@ -43,6 +43,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 19** | Standalone Windows Installer, Packaging & Build Distribution | **Completed** | Automated packaging pipeline (`scripts/package-prepare.mjs`); standalone Python 3.12 runtime with core DLLs, standard library, and virtual environment dependencies (`yt-dlp`, `gallery-dl`, `httpx`, `pydantic`, `pillow`) staged into `build/python/`; FFmpeg & FFprobe binaries staged into `build/bin/`; Windows branding icons (`build/icon.ico`, `build/icon.png`); Electron-builder packaging (`config/electron-builder.yml`); generated Windows NSIS Installer (`dist-package/XakuMedia-Setup-0.1.0.exe`, 167 MB), Portable Executable (`dist-package/XakuMedia-Portable-0.1.0.exe`, 148 MB), and unpacked bundle (`dist-package/win-unpacked/XakuMedia.exe`); production bundle smoke test verified headless startup, Python child spawn, JSON-RPC ping, FFmpeg detection, and clean exit. |
 | **Milestone 20** | End-to-End Security Audit & IPC Defense Hardening | **Completed** | Comprehensive audit of SSRF defenses (non-global IP parsing, CGNAT 100.64/10, DNS verification), Windows filesystem sanitization (NTFS ADS rejection, DOS reserved device names, UNC blocking), strict Electron CSP headers, and custom protocol extension whitelisting; 125 tests passing in 7.29s. |
 | **Milestone 21** | Performance & Reliability Under Large Media Batches | **Completed** | SQLite batch `executemany` persistence (>10x throughput speedup, <20ms for 1,000 items), Schema Migration V4 covering indexes verified with `EXPLAIN QUERY PLAN`, React $O(1)$ memoized task hash map, 48-item/page gallery windowing, 30-item/page queue pagination, native lazy image decoding, and bounded worker concurrency under 1,000 tasks; 129 tests passing; 0 lint errors; desktop smoke test passing. |
+| **Milestone 22** | Automated Testing & Regression Review | **Completed** | Full regression test suite (`test_regression.py`) covering mid-stream socket drops, HTTP 416 range resumption, corrupted Netscape cookies, permission denials, intermediate staging recovery, and provider error mapping; 140 pytest tests passing in 7.41s; 0 ruff errors; frontend typecheck clean; desktop Electron smoke test passing. |
 
 ---
 
@@ -187,11 +188,22 @@ The system relies on a secure 3-tier desktop architecture:
     - Multi-threaded token-bucket bandwidth throttler verified under high thread concurrency without deadlocks.
   - **Automated Stress & Benchmark Suite (`backend/tests/test_performance.py`):**
     - Automated benchmarks asserting <0.5s for 1,000 items scan insertion and <1.5s for 1,000 tasks batch queue enqueue.
-  - **Verification Evidence:**
-    - 129 total pytest tests passing across 20 test modules in 9.00s.
+- **Automated Testing & Regression Review (Milestone 22):**
+  - **Comprehensive Regression Test Suite (`backend/tests/test_regression.py`):**
+    - Network drops & socket timeouts mid-stream: verified `NetworkTimeoutError` clean staging unlinking, task status transition to `FAILED`, and concurrency worker slot release.
+    - HTTP 416 Range Not Satisfiable edge case: verified existing complete partial files are safely promoted to destination without failure.
+    - Fault-tolerant Netscape cookie parsing: verified malformed lines, space-separated tokens, non-integer expiration, and binary files are handled gracefully without exceptions.
+    - Destination permission denial: verified `PermissionError` is mapped cleanly to `DiskSpaceError` without process crashing or unhandled worker pool deadlocks.
+    - Stale intermediate staging recovery: verified `TaskRecoveryService` handles existing complete files alongside orphaned `.part` files.
+    - Provider error mapping matrix: verified `yt-dlp` error parser correctly maps DRM, private media, rate limit, unavailable, and unsupported URL exceptions.
+    - Empty gallery extraction handling: verified `extract_gallery_info` raises `MediaUnavailableError` when 0 items are discovered.
+    - RPC Dispatcher standard error formatting: verified JSON-RPC 2.0 error schemas (`code`, `message`) on method not found, SSRF blocking, and missing parameters.
+  - **Cross-Stack Verification Evidence:**
+    - 140 total pytest tests passing across 21 test modules in 7.41s.
     - 0 ruff lint errors (`ruff check backend/`).
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
     - Desktop Electron smoke test (`npm run test:desktop`) passes cleanly with full IPC communication and EOF child shutdown.
+    - Full cross-stack test pipeline (`npm test`) verified passing.
 
 ---
 
@@ -203,13 +215,13 @@ The system relies on a secure 3-tier desktop architecture:
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 22 — Automated Testing & Regression Review**
+**Next Milestone:** **Milestone 23 — Final Release Review**
 
 ### Acceptance Criteria:
-1. Execute full cross-stack test suite across Python backend, TypeScript frontend, and Electron desktop shell.
-2. Conduct comprehensive regression analysis on all URL extraction providers (yt-dlp, gallery-dl, direct scanner) and error recovery handlers.
-3. Validate end-to-end edge case behaviors (network disconnects, invalid cookies, corrupted intermediate files, permission-denied directories).
-4. Verify code formatting and linting conformance across all repository directories (`ruff`, `tsc`, `eslint`).
-5. Ensure 100% automated test pass rate without flaky assertions or thread leaks.
+1. Conduct comprehensive user acceptance testing (UAT) against all documented features and supported platforms.
+2. Review and finalize documentation (`README.md`, `docs/ARCHITECTURE.md`, `docs/SETUP.md`, `docs/SECURITY.md`, `docs/CURRENT_STATE.md`, `docs/DEVELOPMENT_ROADMAP.md`).
+3. Audit release packaging artifacts (NSIS installer, portable executable, unpacked binaries).
+4. Verify application behavior on clean Windows environment without developer tools pre-installed.
+5. Create final project release notes and milestone sign-off.
 
 
