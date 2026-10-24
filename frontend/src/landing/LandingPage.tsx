@@ -32,7 +32,7 @@ export const LandingPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-brand-black text-brand-white font-sans selection:bg-brand-red selection:text-white antialiased">
+    <div className="min-h-screen bg-white dark:bg-brand-black text-neutral-900 dark:text-brand-white font-sans selection:bg-brand-red selection:text-white antialiased transition-colors">
       {/* Top Navigation */}
       <Navbar />
 
@@ -50,7 +50,7 @@ export const LandingPage: React.FC = () => {
         {/* 4. Windows System Requirements */}
         <RequirementsSection />
 
-        {/* 5. Installation & Troubleshooting (SmartScreen Guide) */}
+        {/* 5. Installation & Troubleshooting */}
         <InstallationSection />
 
         {/* 6. Security, Privacy & Limits */}
@@ -71,7 +71,7 @@ export const LandingPage: React.FC = () => {
         <button
           type="button"
           onClick={scrollToTop}
-          className="fixed bottom-6 right-6 p-3 rounded-full bg-neutral-900/90 border border-neutral-700/80 text-neutral-300 hover:text-white hover:bg-neutral-800 shadow-xl backdrop-blur-md transition-all z-40 group hover:scale-110 active:scale-95"
+          className="fixed bottom-6 right-6 p-3 rounded-full bg-white/90 dark:bg-neutral-900/90 border border-neutral-300 dark:border-neutral-700/80 text-neutral-700 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 shadow-lg backdrop-blur-md transition-all z-40 group hover:scale-110 active:scale-95"
           aria-label="Scroll to top"
         >
           <ChevronUp className="w-5 h-5 group-hover:-translate-y-0.5 transition-transform" />

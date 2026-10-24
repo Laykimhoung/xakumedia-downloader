@@ -33,13 +33,13 @@ export const FaqSection: React.FC = () => {
   ];
 
   return (
-    <section id="faq" className="py-20 border-t border-neutral-900 bg-neutral-950/40 relative">
+    <section id="faq" className="py-20 border-t border-neutral-200 dark:border-neutral-900 bg-neutral-100/50 dark:bg-neutral-950/40 relative transition-colors">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-2">
-          <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+          <h2 className="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white tracking-tight">
             Frequently Asked Questions
           </h2>
-          <p className="text-sm sm:text-base text-neutral-400">
+          <p className="text-sm sm:text-base text-neutral-600 dark:text-neutral-400">
             Quick answers about installation, privacy, and media downloading.
           </p>
         </div>
@@ -51,22 +51,22 @@ export const FaqSection: React.FC = () => {
             return (
               <div
                 key={faq.q}
-                className="rounded-xl border border-neutral-800/60 bg-neutral-900/30 overflow-hidden"
+                className="rounded-xl border border-neutral-200/80 dark:border-neutral-800/60 bg-white dark:bg-neutral-900/30 shadow-sm overflow-hidden transition-all"
               >
                 <button
                   type="button"
                   onClick={() => setOpenIndex(isOpen ? null : idx)}
-                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left text-sm font-semibold text-white hover:text-brand-red transition-colors"
+                  className="w-full flex items-center justify-between p-4 sm:p-5 text-left text-sm font-semibold text-neutral-900 dark:text-white hover:text-brand-red transition-colors"
                 >
                   <span>{faq.q}</span>
                   <ChevronDown
-                    className={`w-4 h-4 text-neutral-500 transition-transform duration-200 ml-4 flex-shrink-0 ${
+                    className={`w-4 h-4 text-neutral-400 transition-transform duration-200 ml-4 flex-shrink-0 ${
                       isOpen ? "rotate-180 text-brand-red" : ""
                     }`}
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-4 pb-4 sm:px-5 sm:pb-5 text-xs sm:text-sm text-neutral-400 leading-relaxed border-t border-neutral-800/40 pt-3">
+                  <div className="px-4 pb-4 sm:px-5 sm:pb-5 text-xs sm:text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed border-t border-neutral-100 dark:border-neutral-800/40 pt-3">
                     {faq.a}
                   </div>
                 )}
@@ -82,7 +82,7 @@ export const FaqSection: React.FC = () => {
             href={`https://github.com/${RELEASE_CONFIG.githubOwner}/${RELEASE_CONFIG.githubRepo}/issues`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-neutral-300 hover:text-white underline underline-offset-2 inline-flex items-center space-x-1"
+            className="text-neutral-700 dark:text-neutral-300 hover:text-brand-red dark:hover:text-white underline underline-offset-2 inline-flex items-center space-x-1"
           >
             <span>Ask a question on GitHub Issues</span>
             <ExternalLink className="w-3 h-3 ml-0.5" />

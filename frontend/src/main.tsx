@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { LandingPage } from "./landing/LandingPage";
-import "./styles/index.css";
+import "./index.css";
 
 // Check environment:
 // In the Electron desktop shell, window.api is exposed by the preload bridge.

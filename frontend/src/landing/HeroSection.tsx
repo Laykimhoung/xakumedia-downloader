@@ -31,21 +31,21 @@ export const HeroSection: React.FC = () => {
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
         {/* Version Badge */}
-        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full border border-neutral-800 bg-neutral-900/60 backdrop-blur-sm text-xs text-neutral-400 mb-8">
+        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full border border-neutral-200 dark:border-neutral-800 bg-white/80 dark:bg-neutral-900/60 backdrop-blur-sm text-xs text-neutral-600 dark:text-neutral-400 mb-8 shadow-sm">
           <span className="w-2 h-2 rounded-full bg-brand-red" />
-          <span className="text-neutral-300 font-medium">Version {RELEASE_CONFIG.latestTag} Released</span>
-          <span className="text-neutral-600">•</span>
+          <span className="text-neutral-900 dark:text-neutral-300 font-medium">Version {RELEASE_CONFIG.latestTag} Released</span>
+          <span className="text-neutral-400 dark:text-neutral-600">•</span>
           <span>Windows 64-bit</span>
         </div>
 
         {/* Headline */}
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-white max-w-4xl mx-auto leading-tight">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-neutral-900 dark:text-white max-w-4xl mx-auto leading-tight">
           Bulk media downloading,{" "}
           <span className="text-brand-red">made effortless.</span>
         </h1>
 
         {/* Subtitle */}
-        <p className="mt-5 text-base sm:text-lg text-neutral-400 max-w-2xl mx-auto leading-relaxed">
+        <p className="mt-5 text-base sm:text-lg text-neutral-600 dark:text-neutral-400 max-w-2xl mx-auto leading-relaxed">
           A clean, local-first Windows desktop app to discover, inspect, and batch-download videos and image galleries. No cloud tracking, no accounts, and no subscriptions.
         </p>
 
@@ -66,9 +66,9 @@ export const HeroSection: React.FC = () => {
               {/* Secondary Portable */}
               <a
                 href={RELEASE_CONFIG.portable.downloadUrl}
-                className="w-full sm:w-auto flex items-center justify-center space-x-2 px-5 py-3.5 rounded-xl bg-neutral-900/80 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-neutral-200 text-sm font-medium hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                className="w-full sm:w-auto flex items-center justify-center space-x-2 px-5 py-3.5 rounded-xl bg-white hover:bg-neutral-100 dark:bg-neutral-900/80 dark:hover:bg-neutral-800 border border-neutral-300 dark:border-neutral-800 text-neutral-800 dark:text-neutral-200 text-sm font-medium hover:-translate-y-0.5 active:translate-y-0 shadow-sm transition-all"
               >
-                <Package className="w-4 h-4 text-neutral-400" />
+                <Package className="w-4 h-4 text-neutral-500 dark:text-neutral-400" />
                 <span>Portable .exe</span>
                 <span className="text-xs text-neutral-500 font-normal">({RELEASE_CONFIG.portable.sizeFormatted})</span>
               </a>
@@ -97,7 +97,7 @@ export const HeroSection: React.FC = () => {
           <span>•</span>
           <a
             href="#installation"
-            className="text-neutral-400 hover:text-white transition-colors underline underline-offset-2"
+            className="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors underline underline-offset-2"
           >
             SmartScreen Guide
           </a>
@@ -105,14 +105,14 @@ export const HeroSection: React.FC = () => {
 
         {/* Streamlined Desktop App Window Showcase */}
         <div className="mt-14 max-w-4xl mx-auto text-left">
-          <div className="rounded-2xl border border-neutral-800/80 bg-neutral-950 shadow-2xl overflow-hidden backdrop-blur-xl">
+          <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800/80 bg-white dark:bg-neutral-950 shadow-xl shadow-neutral-200/50 dark:shadow-2xl overflow-hidden backdrop-blur-xl">
             {/* Titlebar */}
-            <div className="flex items-center justify-between px-4 py-3 bg-neutral-900/40 border-b border-neutral-800/60">
+            <div className="flex items-center justify-between px-4 py-3 bg-neutral-100/80 dark:bg-neutral-900/40 border-b border-neutral-200 dark:border-neutral-800/60">
               <div className="flex items-center space-x-2">
-                <span className="w-3 h-3 rounded-full bg-neutral-700 inline-block" />
-                <span className="w-3 h-3 rounded-full bg-neutral-700 inline-block" />
-                <span className="w-3 h-3 rounded-full bg-neutral-700 inline-block" />
-                <span className="ml-3 text-xs text-neutral-400 font-medium">
+                <span className="w-3 h-3 rounded-full bg-neutral-300 dark:bg-neutral-700 inline-block" />
+                <span className="w-3 h-3 rounded-full bg-neutral-300 dark:bg-neutral-700 inline-block" />
+                <span className="w-3 h-3 rounded-full bg-neutral-300 dark:bg-neutral-700 inline-block" />
+                <span className="ml-3 text-xs text-neutral-600 dark:text-neutral-400 font-medium">
                   XakuMedia — Desktop Media Downloader
                 </span>
               </div>
@@ -122,9 +122,9 @@ export const HeroSection: React.FC = () => {
             {/* Clean App Body Preview */}
             <div className="p-6 space-y-6">
               {/* Clean URL Input Bar */}
-              <div className="flex items-center space-x-3 p-3 rounded-xl border border-neutral-800 bg-neutral-900/60">
-                <Search className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                <div className="w-full text-xs text-neutral-300 font-mono truncate">
+              <div className="flex items-center space-x-3 p-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/60">
+                <Search className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+                <div className="w-full text-xs text-neutral-700 dark:text-neutral-300 font-mono truncate">
                   https://example.com/gallery/landscape-collection-2026
                 </div>
                 <span className="px-3 py-1.5 rounded-lg bg-brand-red text-white text-xs font-semibold flex-shrink-0">
@@ -135,40 +135,40 @@ export const HeroSection: React.FC = () => {
               {/* Two Column Clean Preview */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                 {/* Detected Media Card */}
-                <div className="p-4 rounded-xl border border-neutral-800/80 bg-neutral-900/30 space-y-3">
+                <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800/80 bg-neutral-50/70 dark:bg-neutral-900/30 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white">Discovered Collection</span>
+                    <span className="font-semibold text-neutral-900 dark:text-white">Discovered Collection</span>
                     <span className="px-2 py-0.5 rounded text-[11px] bg-brand-red/10 text-brand-red font-medium">
                       24 Items
                     </span>
                   </div>
-                  <p className="text-neutral-400 text-xs">
+                  <p className="text-neutral-600 dark:text-neutral-400 text-xs">
                     Album detected with native 4K resolutions and lossless image streams.
                   </p>
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <span className="px-2 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 text-[11px]">
+                    <span className="px-2 py-1 rounded bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 text-[11px]">
                       4K UHD (3840×2160)
                     </span>
-                    <span className="px-2 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 text-[11px]">
+                    <span className="px-2 py-1 rounded bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 text-[11px]">
                       MP4 / H.264
                     </span>
-                    <span className="px-2 py-1 rounded bg-neutral-950 border border-neutral-800 text-neutral-300 text-[11px]">
+                    <span className="px-2 py-1 rounded bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 text-[11px]">
                       Original Photos
                     </span>
                   </div>
                 </div>
 
                 {/* Live Download Status Card */}
-                <div className="p-4 rounded-xl border border-neutral-800/80 bg-neutral-900/30 space-y-3">
+                <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800/80 bg-neutral-50/70 dark:bg-neutral-900/30 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-semibold text-white">Batch Download</span>
+                    <span className="font-semibold text-neutral-900 dark:text-white">Batch Download</span>
                     <span className="text-brand-red font-mono text-[11px]">18.4 MB/s</span>
                   </div>
                   {/* Progress Bar */}
-                  <div className="w-full bg-neutral-800 h-2 rounded-full overflow-hidden">
+                  <div className="w-full bg-neutral-200 dark:bg-neutral-800 h-2 rounded-full overflow-hidden">
                     <div className="bg-brand-red h-full rounded-full" style={{ width: "76%" }} />
                   </div>
-                  <div className="flex items-center justify-between text-neutral-400 text-[11px]">
+                  <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-[11px]">
                     <span>18 of 24 completed</span>
                     <span>Range Resumption Active</span>
                   </div>

@@ -11,6 +11,20 @@
     <link rel="icon" type="image/png" href="/icon.png" />
     <meta name="theme-color" content="#0b0c10" />
 
+    <!-- Initial Theme Detection Script -->
+    <script>
+      (function() {
+        try {
+          const theme = localStorage.getItem('xakumedia_theme');
+          if (theme === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="XakuMedia — Windows Bulk Media Downloader" />
@@ -29,7 +43,7 @@
     />
     <meta name="twitter:image" content="/icon.png" />
   </head>
-  <body class="bg-brand-black text-brand-white antialiased">
+  <body class="bg-neutral-50 text-neutral-900 dark:bg-brand-black dark:text-brand-white antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

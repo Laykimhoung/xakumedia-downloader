@@ -24,13 +24,13 @@ export const RequirementsSection: React.FC = () => {
   ];
 
   return (
-    <section id="requirements" className="py-20 border-t border-neutral-900 bg-neutral-950/40 relative">
+    <section id="requirements" className="py-20 border-t border-neutral-200 dark:border-neutral-900 bg-neutral-100/50 dark:bg-neutral-950/40 relative transition-colors">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center max-w-2xl mx-auto mb-14 space-y-2">
-          <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+          <h2 className="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white tracking-tight">
             System Requirements
           </h2>
-          <p className="text-sm sm:text-base text-neutral-400">
+          <p className="text-sm sm:text-base text-neutral-600 dark:text-neutral-400">
             Self-contained desktop application ready to run out of the box.
           </p>
         </div>
@@ -42,16 +42,16 @@ export const RequirementsSection: React.FC = () => {
             return (
               <div
                 key={item.title}
-                className="p-6 rounded-2xl border border-neutral-800/60 bg-neutral-900/20 space-y-3"
+                className="p-6 rounded-2xl border border-neutral-200/80 dark:border-neutral-800/60 bg-white dark:bg-neutral-900/20 shadow-sm space-y-3 transition-all"
               >
-                <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center text-brand-red">
+                <div className="w-10 h-10 rounded-xl bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 flex items-center justify-center text-brand-red">
                   <Icon className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="text-xs text-neutral-500 font-medium">{item.title}</div>
-                  <div className="text-base font-semibold text-white mt-0.5">{item.main}</div>
+                  <div className="text-base font-semibold text-neutral-900 dark:text-white mt-0.5">{item.main}</div>
                 </div>
-                <p className="text-xs text-neutral-400 leading-relaxed font-sans">
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed font-sans">
                   {item.detail}
                 </p>
               </div>
