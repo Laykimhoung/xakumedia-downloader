@@ -209,7 +209,13 @@ def test_cancel_all(temp_dest_dir: Path, temp_db: MediaRepository) -> None:
 
 def test_clear_completed(temp_dest_dir: Path, temp_db: MediaRepository) -> None:
     """Verify clear_completed removes finished tasks while keeping active/pending."""
-    with patch("xakumedia.downloader.manager.default_repository", temp_db):
+    with (
+        patch("xakumedia.downloader.manager.default_repository", temp_db),
+        patch(
+            "xakumedia.downloader.manager.download_stream",
+            return_value=temp_dest_dir / "images" / "done.jpg",
+        ),
+    ):
         manager = DownloadManager(max_concurrent=2)
         item1 = create_dummy_item("done-1")
         item2 = create_dummy_item("failed-2")

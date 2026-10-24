@@ -144,6 +144,29 @@ The system relies on a secure 3-tier desktop architecture:
       - Verified JSON-RPC handshake, SSRF defense, SQLite queries, FFmpeg detection (`n4.4.2`), preferences, task recovery, and throttler.
       - Closed cleanly with exit code 0 without hanging child processes.
     - Launched portable executable (`dist-package/XakuMedia-Portable-0.1.0.exe`) verifying Windows GUI launch.
+- **End-to-End Security Audit & IPC Defense Hardening (Milestone 20):**
+  - **SSRF Hardening (`backend/src/xakumedia/utils/security.py`):**
+    - Multi-format IP literal parser (`parse_ip_literal`) detecting standard dotted quad, 32-bit integer IPs (`2130706433`), hexadecimal IPs (`0x7f000001`), octal/mixed dotted quads (`0177.0.0.1`), IPv4-mapped IPv6 (`::ffff:127.0.0.1`), and bracketed IPv6.
+    - Non-global IP range defense (`is_ip_private_or_local`) blocking private RFC 1918, loopback, link-local, multicast, unspecified (`0.0.0.0`), and non-global CGNAT / RFC 6598 (`100.64.0.0/10` covering Alibaba Cloud metadata `100.100.100.200`), documentation ranges, and benchmarking ranges.
+    - Hostname blocklist and forbidden TLD suffixes (`.localhost`, `.local`, `.internal`, `.lan`, `.home.arpa`, `metadata.google.internal`, `instance-data`).
+    - Pre-request DNS resolution checking all returned A/AAAA addresses.
+  - **Filesystem Security & Path Traversal (`backend/src/xakumedia/utils/paths.py` & `naming.py`):**
+    - Path traversal prevention using `Path.resolve()` and `relative_to(allowed_root)`.
+    - NTFS Alternate Data Stream (`ADS`) syntax rejection (blocking `:` in filenames).
+    - Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`) validation and automatic prefixing in username sanitization.
+    - UNC network path (`\\server\share`, `//server/share`) blocking to prevent NTLM credential leaks over SMB.
+    - Null-byte (`\0`) injection protection.
+  - **Electron Shell & IPC Hardening (`desktop/main/index.ts`):**
+    - Strict Content Security Policy (`setupSecurityHeaders`) with `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
+    - `app:openPath` validation rejecting UNC/relative paths and using `shell.showItemInFolder` for files rather than invoking executable binaries.
+    - `media-loader://` protocol hardening enforcing a media file extension whitelist (`.mp4`, `.webm`, `.mkv`, `.avi`, `.mov`, `.flv`, `.ts`, `.mp3`, `.m4a`, `.wav`, `.aac`, `.flac`, `.ogg`, `.jpg`, `.jpeg`, `.png`, `.webp`, `.gif`, `.ico`, `.bmp`, `.avif`, `.svg`, `.part`, `.tmp`), verifying `stat.isFile()`, and blocking UNC/ADS/null-bytes.
+  - **Security Documentation (`docs/SECURITY.md`):**
+    - Detailed threat model, trust boundaries, network SSRF defense layers, filesystem constraints, and Electron isolation policies.
+  - **Verification Evidence:**
+    - 125 total pytest tests passing across 19 test modules in 7.29s (including 14 specialized SSRF & path traversal security tests in `test_security.py` and `test_paths.py`).
+    - 0 ruff lint errors (`ruff check backend/`).
+    - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
+    - Desktop Electron smoke test (`npm run test:desktop`) passes with verified SSRF rejection and clean shutdown.
 
 ---
 
@@ -155,13 +178,13 @@ The system relies on a secure 3-tier desktop architecture:
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 20 — End-to-End Security Audit & IPC Defense Hardening**
+**Next Milestone:** **Milestone 21 — Performance & Reliability Under Large Media Batches**
 
 ### Acceptance Criteria:
-1. Conduct comprehensive audit of SSRF defenses across direct scanner, yt-dlp, and gallery-dl extractors.
-2. Validate file system path traversal defenses (`validate_destination_path`) against edge cases (UNC paths, NTFS alternate data streams, symlinks).
-3. Audit Electron preload IPC channel boundary to ensure strict schema validation and prevent unauthorized renderer-to-system privilege escalation.
-4. Verify Content Security Policy (CSP) enforcement on local media streaming (`media-loader://`) and external resource fetching.
-5. Add automated security regression tests verifying rejection of malicious URLs, forged file paths, and malformed JSON-RPC messages.
-6. Document security architecture and threat model in `docs/SECURITY.md` and personal learning notes in `my-learning/`.
+1. Benchmark scanning and parsing performance against large collections (1000+ items) without UI thread lag.
+2. Verify virtualized rendering and thumbnail lazy-loading stability during high item volume.
+3. Validate memory consumption and bounded queue execution during high concurrency downloads.
+4. Ensure SQLite database indexing and batch query efficiency for large media libraries.
+5. Add automated load/stress test scripts and document performance benchmarks.
+
 

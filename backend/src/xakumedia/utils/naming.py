@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from ..models.media import MediaType
+from .paths import WINDOWS_RESERVED_NAMES
 
 # Characters forbidden in Windows filenames: \ / : * ? " < > |
 FORBIDDEN_CHARS_PATTERN = re.compile(r'[\\/:*?"<>|]')
@@ -22,8 +23,13 @@ def sanitize_username(username: str | None, fallback: str = "media") -> str:
     cleaned = FORBIDDEN_CHARS_PATTERN.sub("_", username).strip(" .")
     # Normalize multiple underscores and trim boundary underscores/dots
     cleaned = re.sub(r"_+", "_", cleaned).strip("._ ")
+    if not cleaned:
+        return fallback
 
-    return cleaned or fallback
+    if cleaned.upper() in WINDOWS_RESERVED_NAMES:
+        return f"user_{cleaned}"
+
+    return cleaned
 
 
 def get_media_type_prefix(media_type: MediaType) -> str:

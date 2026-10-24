@@ -66,3 +66,52 @@ def test_validate_url_security_resolved_private_ip() -> None:
     with patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("127.0.0.1", 80))]):
         with pytest.raises(SSRFBlockedError, match="resolves to private/local IP '127.0.0.1'"):
             validate_url_security("http://malicious-local-dns.com/hack")
+
+
+def test_validate_url_security_advanced_ip_formats() -> None:
+    # Integer IP (2130706433 is 127.0.0.1)
+    with pytest.raises(SSRFBlockedError, match="127.0.0.1"):
+        validate_url_security("http://2130706433/exploit")
+
+    # Hex IP (0x7f000001 is 127.0.0.1)
+    with pytest.raises(SSRFBlockedError, match="127.0.0.1"):
+        validate_url_security("http://0x7f000001/exploit")
+
+    # Octal IP (0177.0.0.1 is 127.0.0.1)
+    with pytest.raises(SSRFBlockedError, match="127.0.0.1"):
+        validate_url_security("http://0177.0.0.1/exploit")
+
+    # 0.0.0.0 unspecified IP
+    with pytest.raises(SSRFBlockedError, match="0.0.0.0"):
+        validate_url_security("http://0.0.0.0/exploit")
+
+    # IPv4-mapped IPv6
+    with pytest.raises(SSRFBlockedError, match="127.0.0.1"):
+        validate_url_security("http://[::ffff:127.0.0.1]/exploit")
+
+    # CGNAT / Alibaba cloud metadata (100.100.100.200)
+    with pytest.raises(SSRFBlockedError, match="100.100.100.200"):
+        validate_url_security("http://100.100.100.200/latest/meta-data/")
+
+
+def test_validate_url_security_metadata_and_suffix_blocklist() -> None:
+    # Cloud metadata hosts
+    with pytest.raises(SSRFBlockedError, match="blocked local hostname 'metadata.google.internal'"):
+        validate_url_security("http://metadata.google.internal/computeMetadata/v1/")
+
+    with pytest.raises(SSRFBlockedError, match="blocked local hostname 'instance-data'"):
+        validate_url_security("http://instance-data/latest/meta-data/")
+
+    # Forbidden TLDs and local domains
+    with pytest.raises(SSRFBlockedError):
+        validate_url_security("http://router.local/admin")
+
+    with pytest.raises(SSRFBlockedError):
+        validate_url_security("http://internal-server.internal/metrics")
+
+    with pytest.raises(SSRFBlockedError):
+        validate_url_security("http://my-nas.lan/media")
+
+    with pytest.raises(SSRFBlockedError):
+        validate_url_security("http://device.home.arpa/status")
+

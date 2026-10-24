@@ -61,8 +61,15 @@ function setupSecurityHeaders(): void {
             "img-src 'self' data: https: blob: media-loader:; " +
             "media-src 'self' data: https: blob: media-loader:; " +
             "font-src 'self' data:; " +
-            "connect-src 'self' ws://localhost:5173 http://localhost:5173;",
+            "connect-src 'self' ws://localhost:5173 http://localhost:5173; " +
+            "object-src 'none'; " +
+            "base-uri 'self'; " +
+            "form-action 'self'; " +
+            "frame-ancestors 'none';",
         ],
+        "X-Content-Type-Options": ["nosniff"],
+        "X-Frame-Options": ["DENY"],
+        "Referrer-Policy": ["no-referrer"],
       },
     });
   });
@@ -301,17 +308,35 @@ function registerIpcHandlers(): void {
   );
 
   ipcMain.handle("app:openPath", async (_event, targetPath: string) => {
-    if (!targetPath) return;
+    if (!targetPath || typeof targetPath !== "string") return;
+    const trimmed = targetPath.trim();
+    // Reject UNC paths to prevent remote SMB credential leaks
+    if (trimmed.startsWith("\\\\") || trimmed.startsWith("//")) {
+      console.warn(`[desktop] Blocked UNC path in openPath: ${trimmed}`);
+      return;
+    }
+    // Only accept absolute paths
+    if (!path.isAbsolute(trimmed)) {
+      console.warn(`[desktop] Blocked non-absolute path in openPath: ${trimmed}`);
+      return;
+    }
+
     try {
-      if (fs.existsSync(targetPath)) {
-        const stat = fs.statSync(targetPath);
+      const normalized = path.normalize(trimmed);
+      if (fs.existsSync(normalized)) {
+        const stat = fs.statSync(normalized);
         if (stat.isDirectory()) {
-          await shell.openPath(targetPath);
+          await shell.openPath(normalized);
         } else {
-          shell.showItemInFolder(targetPath);
+          // Never execute non-directory files with shell.openPath (which could execute .exe/.bat);
+          // showItemInFolder safely selects and reveals the media file in Windows Explorer.
+          shell.showItemInFolder(normalized);
         }
       } else {
-        await shell.openPath(path.dirname(targetPath));
+        const parentDir = path.dirname(normalized);
+        if (fs.existsSync(parentDir) && fs.statSync(parentDir).isDirectory()) {
+          await shell.openPath(parentDir);
+        }
       }
     } catch (err) {
       console.warn(`[desktop] Failed to open path ${targetPath}:`, err);
@@ -646,6 +671,34 @@ app.whenReady().then(async () => {
   setupSecurityHeaders();
   registerIpcHandlers();
 
+  // Allowed media file extensions for privileged streaming protocol
+  const ALLOWED_MEDIA_EXTENSIONS = new Set([
+    ".mp4",
+    ".webm",
+    ".mkv",
+    ".avi",
+    ".mov",
+    ".flv",
+    ".ts",
+    ".mp3",
+    ".m4a",
+    ".wav",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".ico",
+    ".bmp",
+    ".avif",
+    ".svg",
+    ".part",
+    ".tmp",
+  ]);
+
   // Register protocol handler for streaming local video, audio, and images to renderer
   protocol.handle("media-loader", (request) => {
     try {
@@ -661,12 +714,44 @@ app.whenReady().then(async () => {
         filePath = p;
       }
 
-      filePath = path.normalize(filePath);
-      if (!fs.existsSync(filePath)) {
+      if (!filePath || typeof filePath !== "string") {
+        return new Response("Invalid media path parameter", { status: 400 });
+      }
+
+      // Reject UNC paths to prevent remote network / SMB hash leaking
+      if (filePath.startsWith("\\\\") || filePath.startsWith("//")) {
+        console.warn(`[security] Blocked UNC path in media-loader: ${filePath}`);
+        return new Response("Forbidden network path", { status: 403 });
+      }
+
+      // Reject null bytes and NTFS Alternate Data Streams (colons in filename)
+      if (filePath.includes("\0") || path.basename(filePath).includes(":")) {
+        console.warn(`[security] Blocked malformed / ADS path in media-loader: ${filePath}`);
+        return new Response("Forbidden path syntax", { status: 403 });
+      }
+
+      const normalized = path.normalize(filePath);
+      if (!path.isAbsolute(normalized)) {
+        return new Response("Path must be absolute", { status: 400 });
+      }
+
+      // Enforce strict media extension whitelist
+      const ext = path.extname(normalized).toLowerCase();
+      if (!ALLOWED_MEDIA_EXTENSIONS.has(ext)) {
+        console.warn(`[security] Blocked non-media file extension in media-loader: ${ext}`);
+        return new Response("Forbidden file extension: only media files can be streamed", { status: 403 });
+      }
+
+      if (!fs.existsSync(normalized)) {
         return new Response("Not found", { status: 404 });
       }
 
-      return net.fetch(pathToFileURL(filePath).toString());
+      const stat = fs.statSync(normalized);
+      if (!stat.isFile()) {
+        return new Response("Resource is not a file", { status: 400 });
+      }
+
+      return net.fetch(pathToFileURL(normalized).toString());
     } catch (err) {
       console.warn("[desktop] media-loader request failed:", err);
       return new Response("Internal error", { status: 500 });

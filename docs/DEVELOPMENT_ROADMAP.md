@@ -103,6 +103,7 @@ This document outlines the sequential, milestone-by-milestone development path f
 
 ### Milestone 20: End-to-End Security Audit & IPC Defense Hardening
 - **Goal:** Audit SSRF protections, path traversal defenses, IPC validation, and CSP.
+- **Status:** Completed.
 
 ### Milestone 21: Performance & Reliability
 - **Goal:** Benchmark 1000+ item scans, concurrent downloads, and memory stability.
