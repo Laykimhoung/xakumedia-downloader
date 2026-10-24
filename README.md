@@ -47,7 +47,9 @@ xakumedia/
 ├── AGENTS.md               # Universal AI agent instructions
 ├── README.md               # Project overview and instructions
 ├── .gitignore              # Repository exclusions (venv, node_modules, cache, media)
-├── package.json            # Root workspace orchestrator (zero dependencies)
+├── package.json            # Root workspace orchestrator
+├── config/                 # Build & toolchain configuration
+│   └── electron-builder.yml # Windows NSIS & Portable packaging configuration
 │
 ├── frontend/               # Vite + React + TypeScript desktop UI
 │   ├── package.json        # Frontend dependencies & scripts

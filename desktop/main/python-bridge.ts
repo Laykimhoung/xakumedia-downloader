@@ -1,3 +1,4 @@
+import { app } from "electron";
 import { spawn, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -45,10 +46,34 @@ export class PythonBridge {
 
   /**
    * Determine the path to the Python executable.
-   * Prioritizes the isolated project virtual environment in backend/.venv/.
+   * Prioritizes packaged Python runtime, then isolated project virtual environment in backend/.venv/.
    */
   public resolvePythonExecutable(): string {
     const isWindows = process.platform === "win32";
+
+    // 1. Packaged production: check extraResources/python
+    if (app && app.isPackaged) {
+      const packagedDirect = isWindows
+        ? path.join(process.resourcesPath, "python", "python.exe")
+        : path.join(process.resourcesPath, "python", "bin", "python3");
+      if (fs.existsSync(packagedDirect)) {
+        return packagedDirect;
+      }
+
+      const packagedVenv = isWindows
+        ? path.join(process.resourcesPath, "python", "Scripts", "python.exe")
+        : path.join(process.resourcesPath, "python", "bin", "python");
+      if (fs.existsSync(packagedVenv)) {
+        return packagedVenv;
+      }
+    }
+
+    // 2. Explicit environment override
+    if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+      return process.env.PYTHON_PATH;
+    }
+
+    // 3. Isolated project virtual environment
     const venvPython = isWindows
       ? path.join(this.projectRoot, "backend", ".venv", "Scripts", "python.exe")
       : path.join(this.projectRoot, "backend", ".venv", "bin", "python");
@@ -57,11 +82,7 @@ export class PythonBridge {
       return venvPython;
     }
 
-    if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
-      return process.env.PYTHON_PATH;
-    }
-
-    // Fall back to system python in PATH
+    // 4. Fall back to system python in PATH
     return isWindows ? "python" : "python3";
   }
 
@@ -74,21 +95,42 @@ export class PythonBridge {
     }
 
     const pythonExe = this.resolvePythonExecutable();
-    console.log(`[python-bridge] Launching Python engine using: ${pythonExe}`);
+    const isPackaged = app && app.isPackaged;
+    const workingDir = isPackaged
+      ? path.join(process.resourcesPath, "backend")
+      : this.projectRoot;
+
+    const childEnv: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      PYTHONUNBUFFERED: "1",
+      PYTHONIOENCODING: "utf-8",
+    };
+
+    if (isPackaged) {
+      const backendSrc = path.join(process.resourcesPath, "backend", "src");
+      childEnv.PYTHONPATH = backendSrc + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : "");
+
+      const packagedFfmpeg = path.join(process.resourcesPath, "bin", "ffmpeg.exe");
+      const packagedFfprobe = path.join(process.resourcesPath, "bin", "ffprobe.exe");
+      if (fs.existsSync(packagedFfmpeg)) {
+        childEnv.FFMPEG_PATH = packagedFfmpeg;
+      }
+      if (fs.existsSync(packagedFfprobe)) {
+        childEnv.FFPROBE_PATH = packagedFfprobe;
+      }
+    }
+
+    console.log(`[python-bridge] Launching Python engine using: ${pythonExe} (cwd: ${workingDir})`);
 
     return new Promise<void>((resolve, reject) => {
       let startupResolved = false;
 
       try {
         this.process = spawn(pythonExe, ["-m", "xakumedia.server"], {
-          cwd: this.projectRoot,
+          cwd: workingDir,
           stdio: ["pipe", "pipe", "pipe"],
           windowsHide: true,
-          env: {
-            ...process.env,
-            PYTHONUNBUFFERED: "1",
-            PYTHONIOENCODING: "utf-8",
-          },
+          env: childEnv,
         });
       } catch (err) {
         this.lastError = `Failed to spawn Python process: ${err}`;

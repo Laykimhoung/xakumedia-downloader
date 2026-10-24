@@ -446,6 +446,18 @@ function createWindow(): void {
   const isDev = !app.isPackaged && Boolean(process.env.VITE_DEV_SERVER_URL);
   const preloadPath = path.join(__dirname, "preload.cjs");
 
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "icon.ico")
+    : path.join(__dirname, "../../build/icon.ico");
+  const fallbackIcon = app.isPackaged
+    ? path.join(process.resourcesPath, "icon.png")
+    : path.join(__dirname, "../../build/icon.png");
+  const windowIcon = fs.existsSync(iconPath)
+    ? iconPath
+    : fs.existsSync(fallbackIcon)
+    ? fallbackIcon
+    : undefined;
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -453,6 +465,7 @@ function createWindow(): void {
     minHeight: 640,
     backgroundColor: "#0b0c10",
     title: "XakuMedia",
+    icon: windowIcon,
     show: false, // Prevent white flash before ready-to-show
     webPreferences: {
       preload: preloadPath,
@@ -615,7 +628,12 @@ function createWindow(): void {
     const devUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
     mainWindow.loadURL(devUrl);
   } else {
-    const prodPath = path.join(__dirname, "../../frontend/dist/index.html");
+    const candidates = [
+      path.join(__dirname, "../../frontend/dist/index.html"),
+      path.join(__dirname, "../frontend/dist/index.html"),
+      path.join(app.getAppPath(), "frontend/dist/index.html"),
+    ];
+    const prodPath = candidates.find((p) => fs.existsSync(p)) || candidates[0];
     mainWindow.loadFile(prodPath);
   }
 

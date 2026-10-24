@@ -100,7 +100,9 @@ xakumedia/
 ├── AGENTS.md               # Universal shared project instructions
 ├── README.md               # Project overview & essential usage
 ├── .gitignore              # Multi-tier exclusion rules
-├── package.json            # Root workspace orchestrator (zero dependencies)
+├── package.json            # Root workspace orchestrator
+├── config/                 # Toolchain & build configuration
+│   └── electron-builder.yml # Windows NSIS & Portable packaging settings
 │
 ├── frontend/               # Self-contained React + Vite frontend
 │   ├── package.json        # Frontend manifest & build scripts

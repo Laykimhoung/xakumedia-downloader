@@ -2,11 +2,13 @@
   "name": "xakumedia",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first Windows Desktop Bulk Media Downloader",
+  "main": "desktop/dist/main.cjs",
+  "author": "XAKURAII",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:frontend": "npm --prefix frontend run dev",
     "build": "npm run build:all",
+    "build:icons": ".\\backend\\.venv\\Scripts\\python.exe scripts/generate_icons.py",
     "build:desktop": "node scripts/build-desktop.mjs",
     "build:frontend": "npm --prefix frontend run build",
     "build:all": "npm run build:frontend && npm run build:desktop",
@@ -17,7 +19,7 @@
     "typecheck:frontend": "npm --prefix frontend run typecheck",
     "lint": "npm run lint:python",
     "test:python": ".\\backend\\.venv\\Scripts\\pytest backend/",
-    "lint:python": ".\\backend\\.venv\\Scripts\\ruff check backend/",
+    "lint:python": ".\\backend\\.venv\\Scripts\\ruff check backend/ --cache-dir backend/.ruff_cache",
     "install:frontend": "npm --prefix frontend install",
     "install:backend": ".\\backend\\.venv\\Scripts\\pip install -e \"backend[dev]\"",
     "server:python": "node scripts/run-python-server.mjs",
@@ -25,6 +27,12 @@
     "clean": "node scripts/clean.mjs",
     "clean:dry": "node scripts/clean.mjs --dry-run",
     "db:stats": "node scripts/db-tool.mjs stats",
-    "run:ps1": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run.ps1"
+    "run:ps1": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run.ps1",
+    "package:prepare": "node scripts/package-prepare.mjs",
+    "package:dir": "npm run package:prepare && npx --prefix frontend electron-builder --config config/electron-builder.yml --dir",
+    "package:nsis": "npm run package:prepare && npx --prefix frontend electron-builder --config config/electron-builder.yml --win nsis",
+    "package:portable": "npm run package:prepare && npx --prefix frontend electron-builder --config config/electron-builder.yml --win portable",
+    "package:win": "npm run package:prepare && npx --prefix frontend electron-builder --config config/electron-builder.yml --win",
+    "package": "npm run package:win"
   }
 }

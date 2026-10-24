@@ -16,6 +16,8 @@ All scripts are written in standard Node.js ESM (`.mjs`) and require zero extern
 | [`clean.mjs`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/clean.mjs) | Safe workspace cleanup (builds, Python bytecode, test caches) | `npm run clean:dry` / `npm run clean` |
 | [`db-tool.mjs`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/db-tool.mjs) | Local SQLite database inspector & maintenance CLI | `npm run db:stats` |
 | [`build-desktop.mjs`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/build-desktop.mjs) | Bundles Electron Main & Preload into `desktop/dist/` | `npm run build:desktop` |
+| [`package-prepare.mjs`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/package-prepare.mjs) | Stages runtime, standalone Python, FFmpeg, and builds for packaging | `npm run package:prepare` |
+| [`generate_icons.py`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/generate_icons.py) | Generates master 512px PNG and multi-resolution Windows `.ico` | `npm run build:icons` |
 | [`dev.mjs`](file:///d:/Project/Personal/System/Xakuraii_Bulk_Downloader/scripts/dev.mjs) | Spawns Vite frontend server and boots Electron in dev mode | `npm run dev` |
 
 ---

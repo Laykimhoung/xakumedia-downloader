@@ -79,6 +79,27 @@ npm run build:frontend
 # Run Python automated tests
 npm run test:python
 
-# Run Python linter
+# Run Python linter (cached inside backend/.ruff_cache)
 npm run lint:python
+```
+
+---
+
+## 6. Windows Packaging Commands
+
+```powershell
+# Prepare all packaging assets, standalone Python runtime, and FFmpeg binaries
+npm run package:prepare
+
+# Fast unpacked directory test build
+npm run package:dir
+
+# Build Windows NSIS Installer (.exe)
+npm run package:nsis
+
+# Build Windows Portable (.exe)
+npm run package:portable
+
+# Build all Windows distribution packages
+npm run package:win
 ```

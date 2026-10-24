@@ -175,9 +175,11 @@ ${colors.cyan}╔═════════════════════
   Root: ${colors.dim}${rootDir}${colors.reset}
 `);
 
-  console.log(`${colors.bold}${colors.cyan}1. Cleaning Desktop & Frontend Build Outputs...${colors.reset}`);
+  console.log(`${colors.bold}${colors.cyan}1. Cleaning Desktop, Frontend & Packaging Build Outputs...${colors.reset}`);
   removeDir(path.join(rootDir, "desktop", "dist"));
   removeDir(path.join(rootDir, "frontend", "dist"));
+  removeDir(path.join(rootDir, "dist-package"));
+  removeDir(path.join(rootDir, "build"));
 
   console.log(`\n${colors.bold}${colors.cyan}2. Scanning and cleaning Python bytecode & test caches...${colors.reset}`);
   cleanRecursive(path.join(rootDir, "backend"));

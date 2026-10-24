@@ -1,0 +1,48 @@
+appId: com.xakuraii.xakumedia
+productName: XakuMedia
+copyright: Copyright © 2026 XAKURAII
+
+directories:
+  output: dist-package
+  buildResources: build
+
+files:
+  - "desktop/dist/**/*"
+  - "frontend/dist/**/*"
+  - "package.json"
+
+extraResources:
+  - from: "build/bin"
+    to: "bin"
+    filter:
+      - "*.exe"
+  - from: "build/python"
+    to: "python"
+  - from: "build/backend"
+    to: "backend"
+  - from: "build/icon.ico"
+    to: "icon.ico"
+  - from: "build/icon.png"
+    to: "icon.png"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  icon: "build/icon.ico"
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "XakuMedia"
+  artifactName: "${productName}-Setup-${version}.${ext}"
+  uninstallDisplayName: "${productName} by XAKURAII"
+
+portable:
+  artifactName: "${productName}-Portable-${version}.${ext}"

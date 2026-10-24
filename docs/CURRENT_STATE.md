@@ -135,8 +135,8 @@ The system relies on a secure 3-tier desktop architecture:
 **Next Milestone:** **Milestone 19 — Standalone Windows Installer, Packaging & Build Distribution**
 
 ### Acceptance Criteria:
-1. Configure `electron-builder` for automated Windows x64 desktop packaging.
-2. Bundle the Python runtime and dependencies into the packaged application distribution.
+1. Configure `electron-builder` for automated Windows x64 desktop packaging (configuration isolated in `config/electron-builder.yml`).
+2. Bundle the Python runtime and dependencies into the packaged application distribution via `scripts/package-prepare.mjs`.
 3. Package FFmpeg/FFprobe binaries alongside the desktop shell for zero-configuration user installation.
 4. Generate both a Windows NSIS Installer (`.exe`) and a Portable executable.
 5. Provide desktop application icons (`.ico`, `.png`) matching the XAKURAII brand identity.

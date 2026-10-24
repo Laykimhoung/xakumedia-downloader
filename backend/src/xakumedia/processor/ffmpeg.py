@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -24,20 +25,36 @@ logger = get_logger("processor.ffmpeg")
 
 def find_ffmpeg() -> Path | None:
     """Locate the FFmpeg executable dynamically from config, PATH, or standard paths."""
+    # 0. Environment variable override
+    env_ffmpeg = os.environ.get("FFMPEG_PATH")
+    if env_ffmpeg and Path(env_ffmpeg).is_file():
+        return Path(env_ffmpeg)
+
     # 1. Configured custom path
     if default_config.ffmpeg_binary and default_config.ffmpeg_binary.exists():
         return default_config.ffmpeg_binary
 
-    # 2. System PATH lookup
+    # 2. Packaged relative resource locations (resources/bin/ffmpeg.exe)
+    packaged_candidates = [
+        Path(sys.executable).parent.parent / "bin" / "ffmpeg.exe",
+        Path(sys.executable).parent / "bin" / "ffmpeg.exe",
+        Path(__file__).resolve().parents[4] / "bin" / "ffmpeg.exe",
+    ]
+    for candidate in packaged_candidates:
+        if candidate.is_file():
+            return candidate
+
+    # 3. System PATH lookup
     system_bin = shutil.which("ffmpeg")
     if system_bin:
         return Path(system_bin)
 
-    # 3. Windows common installation locations
+    # 4. Windows common installation locations
     if os.name == "nt":
         local_app = Path(os.environ.get("LOCALAPPDATA", ""))
         prog_files = Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
         candidates = [
+            Path("C:\\lib\\ffmpeg-n4.4-latest-win64-gpl-4.4\\bin\\ffmpeg.exe"),
             local_app / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe",
             prog_files / "FFmpeg" / "bin" / "ffmpeg.exe",
             Path("C:\\ffmpeg\\bin\\ffmpeg.exe"),
@@ -51,8 +68,22 @@ def find_ffmpeg() -> Path | None:
 
 def find_ffprobe() -> Path | None:
     """Locate the FFprobe executable dynamically from config, PATH, or standard paths."""
+    # 0. Environment variable override
+    env_ffprobe = os.environ.get("FFPROBE_PATH")
+    if env_ffprobe and Path(env_ffprobe).is_file():
+        return Path(env_ffprobe)
+
     if default_config.ffprobe_binary and default_config.ffprobe_binary.exists():
         return default_config.ffprobe_binary
+
+    packaged_candidates = [
+        Path(sys.executable).parent.parent / "bin" / "ffprobe.exe",
+        Path(sys.executable).parent / "bin" / "ffprobe.exe",
+        Path(__file__).resolve().parents[4] / "bin" / "ffprobe.exe",
+    ]
+    for candidate in packaged_candidates:
+        if candidate.is_file():
+            return candidate
 
     system_bin = shutil.which("ffprobe")
     if system_bin:
@@ -62,6 +93,7 @@ def find_ffprobe() -> Path | None:
         local_app = Path(os.environ.get("LOCALAPPDATA", ""))
         prog_files = Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
         candidates = [
+            Path("C:\\lib\\ffmpeg-n4.4-latest-win64-gpl-4.4\\bin\\ffprobe.exe"),
             local_app / "Microsoft" / "WinGet" / "Links" / "ffprobe.exe",
             prog_files / "FFmpeg" / "bin" / "ffprobe.exe",
             Path("C:\\ffmpeg\\bin\\ffprobe.exe"),
