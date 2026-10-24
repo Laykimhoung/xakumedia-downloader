@@ -1,6 +1,7 @@
 appId: com.xakuraii.xakumedia
 productName: XakuMedia
 copyright: Copyright © 2026 XAKURAII
+electronVersion: "33.4.11"
 
 directories:
   output: dist-package

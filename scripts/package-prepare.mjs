@@ -93,7 +93,7 @@ async function prepare() {
   fs.mkdirSync(pythonStagingDir, { recursive: true });
 
   // Determine base Python installation path from backend/.venv/pyvenv.cfg
-  let basePythonDir = "C:\\Users\\CSR\\AppData\Local\\Programs\\Python\\Python312";
+  let basePythonDir = "C:\\Users\\CSR\\AppData\\Local\\Programs\\Python\\Python312";
   const pyvenvCfgPath = path.join(rootDir, "backend/.venv/pyvenv.cfg");
   if (fs.existsSync(pyvenvCfgPath)) {
     const lines = fs.readFileSync(pyvenvCfgPath, "utf-8").split("\n");

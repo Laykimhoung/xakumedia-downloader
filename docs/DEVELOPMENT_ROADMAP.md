@@ -97,10 +97,11 @@ This document outlines the sequential, milestone-by-milestone development path f
 ### Milestone 18: Saved Sources & Scan History
 - **Goal:** Save favorite sources, rescan to discover only new items, and review past scans.
 
-### Milestone 19: Settings & Preferences
-- **Goal:** Configure download paths, default qualities, concurrency, and theme.
+### Milestone 19: Standalone Windows Installer, Packaging & Build Distribution
+- **Goal:** Bundle Electron, standalone Python runtime, site-packages, and FFmpeg/FFprobe into Windows NSIS installer and portable executable.
+- **Status:** Completed.
 
-### Milestone 20: Security Review
+### Milestone 20: End-to-End Security Audit & IPC Defense Hardening
 - **Goal:** Audit SSRF protections, path traversal defenses, IPC validation, and CSP.
 
 ### Milestone 21: Performance & Reliability
@@ -109,8 +110,5 @@ This document outlines the sequential, milestone-by-milestone development path f
 ### Milestone 22: Automated Testing & Regression Review
 - **Goal:** Full test suite execution (pytest, typecheck, linting).
 
-### Milestone 23: Windows Packaging
-- **Goal:** Bundle Electron, Python runtime, and FFmpeg into a standalone Windows installer/executable.
-
-### Milestone 24: Final Release Review
+### Milestone 23: Final Release Review
 - **Goal:** Complete acceptance checklist verification and release documentation.

@@ -69,6 +69,7 @@ cache/
 
 # Electron and frontend build artifacts
 dist-electron/
+dist-package/
 release/
 out/
 .vite/

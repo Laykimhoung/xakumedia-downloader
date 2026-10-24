@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 18 — Saved Sources, Incremental Rescan & Differential Discovery  
-**Overall Status:** Saved Sources, Incremental Rescan & Differential Discovery Complete  
+**Active Milestone:** Milestone 19 — Standalone Windows Installer, Packaging & Build Distribution  
+**Overall Status:** Standalone Windows Installer, Packaging & Build Distribution Complete  
 
 ---
 
@@ -40,6 +40,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 16** | Bandwidth Throttling & Network Speed Limits | **Completed** | Thread-safe token bucket rate limiter (`downloader/throttler.py`) with dynamic slice sleeping (`BandwidthThrottler`); global bandwidth rate limiting across all concurrent stream worker threads in `downloader/stream.py` and `downloader/manager.py`; dynamic live rate adjustment without transfer interruption; persistent `max_download_speed_kbps` in SQLite `app_preferences` and runtime synchronization; JSON-RPC handlers (`set_speed_limit`, `get_speed_limit`); desktop IPC bridge (`setSpeedLimit`, `getSpeedLimit`); React `SettingsView.tsx` with speed presets (Unlimited, 500 KB/s, 1 MB/s, 2 MB/s, 5 MB/s, 10 MB/s, 20 MB/s, 50 MB/s) and custom input; Downloads toolbar quick speed selector; 8 dedicated unit tests (105 total passing in 5.13s); 0 ruff errors; desktop smoke test verified speed limit get/set over IPC. |
 | **Milestone 17** | Session Credentials, Custom Headers & Cookie Import | **Completed** | SQLite schema Migration V2 (`cookie_profiles`, `domain_headers`); dedicated `auth/` module (`models.py`, `cookies.py`, `headers.py`); Netscape cookie format parser & serializer with `#HttpOnly_` prefix handling; automated local browser cookie extraction (`chrome`, `edge`, `firefox`, `brave`, `opera`, `vivaldi`) via `yt-dlp`'s cookiejar engine; subdomain-hierarchical request header matching; seamless injection into `download_stream` (`httpx`), `extract_video` (`yt-dlp`), and `extract_gallery_info` (`gallery-dl`); 9 JSON-RPC handlers; desktop IPC bridge and native `.txt` file selector dialog (`dialog:selectCookieFile`); modern React controls in `SettingsView.tsx`; 9 dedicated unit tests (114 total passing in 6.40s); 0 ruff errors; desktop smoke test verified auth/cookies over IPC. |
 | **Milestone 18** | Saved Sources, Incremental Rescan & Differential Discovery | **Completed** | SQLite schema Migration V3 (`saved_sources` with `url`, `platform`, `last_scanned_at` indexes); Pydantic `SavedSource`, `IncrementalScanResult`, `RescanAllSummary` models; repository CRUD and $O(1)$ known URL set resolution; differential discovery and multi-extractor rescan engine (`sources/rescan.py`); 6 JSON-RPC handlers; desktop IPC bridge (`python:saveSource`, `getSavedSources`, `getSource`, `deleteSavedSource`, `rescanSource`, `rescanAllSources`); modern React `SavedSourcesView.tsx` with search, dynamic tag filters, Add Source modal, Rescan All, source cards, and Incremental Rescan review modal with 1-click batch download of delta items; 1-click Bookmark Source button on scan result cards; 5 dedicated unit tests (119 total passing in 6.83s); 0 ruff errors; frontend typecheck (`tsc --noEmit`) and desktop smoke test passing. |
+| **Milestone 19** | Standalone Windows Installer, Packaging & Build Distribution | **Completed** | Automated packaging pipeline (`scripts/package-prepare.mjs`); standalone Python 3.12 runtime with core DLLs, standard library, and virtual environment dependencies (`yt-dlp`, `gallery-dl`, `httpx`, `pydantic`, `pillow`) staged into `build/python/`; FFmpeg & FFprobe binaries staged into `build/bin/`; Windows branding icons (`build/icon.ico`, `build/icon.png`); Electron-builder packaging (`config/electron-builder.yml`); generated Windows NSIS Installer (`dist-package/XakuMedia-Setup-0.1.0.exe`, 167 MB), Portable Executable (`dist-package/XakuMedia-Portable-0.1.0.exe`, 148 MB), and unpacked bundle (`dist-package/win-unpacked/XakuMedia.exe`); production bundle smoke test verified headless startup, Python child spawn, JSON-RPC ping, FFmpeg detection, and clean exit. |
 
 ---
 
@@ -121,25 +122,46 @@ The system relies on a secure 3-tier desktop architecture:
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
     - Production bundle (`npm run build:frontend`) builds in 4.52s.
     - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Saved sources verified over IPC: count=0`.
+- **Standalone Windows Installer, Packaging & Build Distribution (Milestone 19):**
+  - **Packaging Pipeline (`scripts/package-prepare.mjs`):**
+    - High-resolution application icons generated (`build/icon.ico` and `build/icon.png`) with XAKURAII brand styling.
+    - Automated desktop shell bundling (`desktop/dist/main.cjs`, `desktop/dist/preload.cjs`) and Vite production bundle (`frontend/dist/`).
+    - Staged FFmpeg (`ffmpeg.exe`) and FFprobe (`ffprobe.exe`) binaries into `build/bin/` for zero-configuration media processing.
+    - Staged standalone Python 3.12 runtime from base Python into `build/python/` (including `python.exe`, `pythonw.exe`, `python3.dll`, `python312.dll`, standard DLLs, and `Lib/`).
+    - Staged all virtual environment dependencies (`yt-dlp`, `gallery-dl`, `httpx`, `pydantic`, `pillow`) and `xakumedia` package directly into `build/python/Lib/site-packages/`.
+    - Removed `pyvenv.cfg` in staging directory to activate native Python portable root resolution.
+    - Verified standalone portable Python runtime execution and dependency imports directly before packaging.
+  - **Electron Builder Packaging (`config/electron-builder.yml`):**
+    - Configured explicit `electronVersion: "33.4.11"` with isolated configuration in `config/electron-builder.yml`.
+    - Bundled `desktop/dist`, `frontend/dist`, and `package.json` into `app.asar`.
+    - Embedded `bin/` (FFmpeg/FFprobe), `python/` (portable runtime), and `backend/src/` as `extraResources`.
+    - Built unpacked distribution in `dist-package/win-unpacked/XakuMedia.exe`.
+    - Built Windows NSIS Installer in `dist-package/XakuMedia-Setup-0.1.0.exe` (167 MB).
+    - Built Windows Portable Executable in `dist-package/XakuMedia-Portable-0.1.0.exe` (148 MB).
+  - **Verification Evidence:**
+    - Executed packaged smoke test (`dist-package/win-unpacked/XakuMedia.exe --smoke-test`):
+      - Spawned bundled Python engine: `dist-package\win-unpacked\resources\python\python.exe` (cwd: `resources\backend`).
+      - Verified JSON-RPC handshake, SSRF defense, SQLite queries, FFmpeg detection (`n4.4.2`), preferences, task recovery, and throttler.
+      - Closed cleanly with exit code 0 without hanging child processes.
+    - Launched portable executable (`dist-package/XakuMedia-Portable-0.1.0.exe`) verifying Windows GUI launch.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Packaging as a standalone Windows installer (.exe / MSI via electron-builder) is scheduled for Milestone 19.
+- Code signing certificate is not configured (packaging displays standard Electron builder unsigned notice).
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 19 — Standalone Windows Installer, Packaging & Build Distribution**
+**Next Milestone:** **Milestone 20 — End-to-End Security Audit & IPC Defense Hardening**
 
 ### Acceptance Criteria:
-1. Configure `electron-builder` for automated Windows x64 desktop packaging (configuration isolated in `config/electron-builder.yml`).
-2. Bundle the Python runtime and dependencies into the packaged application distribution via `scripts/package-prepare.mjs`.
-3. Package FFmpeg/FFprobe binaries alongside the desktop shell for zero-configuration user installation.
-4. Generate both a Windows NSIS Installer (`.exe`) and a Portable executable.
-5. Provide desktop application icons (`.ico`, `.png`) matching the XAKURAII brand identity.
-6. Verify packaged application launch, clean background engine lifecycle, and smoke test execution on production bundles.
-7. Document installation and packaging procedures in `docs/` and personal learning notes in `my-learning/`.
+1. Conduct comprehensive audit of SSRF defenses across direct scanner, yt-dlp, and gallery-dl extractors.
+2. Validate file system path traversal defenses (`validate_destination_path`) against edge cases (UNC paths, NTFS alternate data streams, symlinks).
+3. Audit Electron preload IPC channel boundary to ensure strict schema validation and prevent unauthorized renderer-to-system privilege escalation.
+4. Verify Content Security Policy (CSP) enforcement on local media streaming (`media-loader://`) and external resource fetching.
+5. Add automated security regression tests verifying rejection of malicious URLs, forged file paths, and malformed JSON-RPC messages.
+6. Document security architecture and threat model in `docs/SECURITY.md` and personal learning notes in `my-learning/`.
 
