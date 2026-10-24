@@ -80,6 +80,7 @@ Comprehensive technical documentation is maintained in the `docs/` directory:
 | **[docs/IPC_API.md](docs/IPC_API.md)** | Stdio JSON-RPC 2.0 protocol reference and Electron Preload API contracts. |
 | **[docs/SECURITY.md](docs/SECURITY.md)** | Security threat model, SSRF multi-format IP defense, NTFS ADS mitigation, and CSP rules. |
 | **[docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)** | Production v0.1.0 release notes, benchmark evidence, and package distribution info. |
+| **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** | Public landing page Vercel deployment and GitHub Release binary distribution workflows. |
 | **[docs/SETUP.md](docs/SETUP.md)** | Developer environment setup, virtual environment commands, and build guides. |
 
 ---
