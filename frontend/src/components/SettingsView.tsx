@@ -18,8 +18,22 @@ import {
   RefreshCw,
   ExternalLink,
   Gauge,
+  KeyRound,
+  Shield,
+  Globe,
+  Upload,
+  Trash2,
+  Plus,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
-import type { AppPreferences, FFmpegInfoResult, PythonBridgeStatus, SystemInfo } from "../../../desktop/shared/types";
+import type {
+  AppPreferences,
+  CookieProfileRecord,
+  FFmpegInfoResult,
+  PythonBridgeStatus,
+  SystemInfo,
+} from "../../../desktop/shared/types";
 
 interface SettingsViewProps {
   systemInfo: SystemInfo | null;
@@ -57,6 +71,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState<boolean>(false);
 
+  // Authentication, Cookies & Custom Request Headers State
+  const [cookieProfiles, setCookieProfiles] = useState<CookieProfileRecord[]>([]);
+  const [domainHeaders, setDomainHeaders] = useState<Record<string, Record<string, string>>>({});
+  const [supportedBrowsers, setSupportedBrowsers] = useState<string[]>(["edge", "chrome", "firefox"]);
+  const [selectedBrowser, setSelectedBrowser] = useState<string>("edge");
+  const [browserDomainFilter, setBrowserDomainFilter] = useState<string>("");
+  const [importingBrowser, setImportingBrowser] = useState<boolean>(false);
+  const [authActiveTab, setAuthActiveTab] = useState<"cookies" | "headers">("cookies");
+  const [pasteModalOpen, setPasteModalOpen] = useState<boolean>(false);
+  const [pasteDomain, setPasteDomain] = useState<string>("");
+  const [pasteText, setPasteText] = useState<string>("");
+  const [headerModalOpen, setHeaderModalOpen] = useState<boolean>(false);
+  const [headerDomain, setHeaderDomain] = useState<string>("");
+  const [headerUserAgent, setHeaderUserAgent] = useState<string>("");
+  const [headerReferer, setHeaderReferer] = useState<string>("");
+  const [headerAuth, setHeaderAuth] = useState<string>("");
+  const [authFeedback, setAuthFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   // Load preferences from SQLite on mount
   useEffect(() => {
     async function loadPreferences() {
@@ -76,7 +108,170 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
 
     loadPreferences();
+    loadAuthData();
   }, []);
+
+  const loadAuthData = async () => {
+    try {
+      if (window.api?.listCookieProfiles) {
+        const res = await window.api.listCookieProfiles();
+        setCookieProfiles(res.profiles || []);
+      }
+      if (window.api?.getDomainHeaders) {
+        const res = await window.api.getDomainHeaders();
+        setDomainHeaders(res.domain_headers || {});
+      }
+      if (window.api?.listSupportedBrowsers) {
+        const res = await window.api.listSupportedBrowsers();
+        if (res.browsers && res.browsers.length > 0) {
+          setSupportedBrowsers(res.browsers);
+          if (!res.browsers.includes(selectedBrowser)) {
+            setSelectedBrowser(res.browsers[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load auth credentials data:", err);
+    }
+  };
+
+  const handleBrowserImport = async () => {
+    if (!window.api?.importBrowserCookies) return;
+    setImportingBrowser(true);
+    setAuthFeedback(null);
+    try {
+      const res = await window.api.importBrowserCookies(
+        selectedBrowser,
+        browserDomainFilter.trim() || undefined
+      );
+      setAuthFeedback({
+        type: "success",
+        message: `Imported ${res.profile.cookie_count} cookies for '${res.profile.domain}' from ${selectedBrowser}.`,
+      });
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || `Failed to extract cookies from ${selectedBrowser}. Ensure the browser is closed.`,
+      });
+    } finally {
+      setImportingBrowser(false);
+    }
+  };
+
+  const handleFileImport = async () => {
+    if (!window.api?.selectCookieFile || !window.api?.importCookiesFile) return;
+    setAuthFeedback(null);
+    try {
+      const filePath = await window.api.selectCookieFile();
+      if (!filePath) return;
+      const res = await window.api.importCookiesFile(filePath);
+      setAuthFeedback({
+        type: "success",
+        message: `Imported ${res.profile.cookie_count} cookies for '${res.profile.domain}' from file.`,
+      });
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || "Failed to import cookies file.",
+      });
+    }
+  };
+
+  const handleSavePasteCookies = async () => {
+    if (!pasteDomain.trim() || !pasteText.trim()) {
+      setAuthFeedback({ type: "error", message: "Domain and cookie text are required." });
+      return;
+    }
+    if (!window.api?.saveCookiesText) return;
+    try {
+      const res = await window.api.saveCookiesText(pasteDomain.trim(), pasteText.trim());
+      setAuthFeedback({
+        type: "success",
+        message: `Saved ${res.profile.cookie_count} cookies for '${res.profile.domain}'.`,
+      });
+      setPasteModalOpen(false);
+      setPasteDomain("");
+      setPasteText("");
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || "Failed to parse or save Netscape cookies.",
+      });
+    }
+  };
+
+  const handleDeleteCookieProfile = async (id: string, domain: string) => {
+    if (!window.api?.deleteCookieProfile) return;
+    try {
+      await window.api.deleteCookieProfile(id);
+      setAuthFeedback({
+        type: "success",
+        message: `Deleted cookie profile for '${domain}'.`,
+      });
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || "Failed to delete cookie profile.",
+      });
+    }
+  };
+
+  const handleSaveDomainHeaders = async () => {
+    if (!headerDomain.trim()) {
+      setAuthFeedback({ type: "error", message: "Domain is required for custom headers." });
+      return;
+    }
+    const headers: Record<string, string> = {};
+    if (headerUserAgent.trim()) headers["User-Agent"] = headerUserAgent.trim();
+    if (headerReferer.trim()) headers["Referer"] = headerReferer.trim();
+    if (headerAuth.trim()) headers["Authorization"] = headerAuth.trim();
+
+    if (Object.keys(headers).length === 0) {
+      setAuthFeedback({ type: "error", message: "Provide at least one header value." });
+      return;
+    }
+
+    if (!window.api?.setDomainHeaders) return;
+    try {
+      await window.api.setDomainHeaders(headerDomain.trim(), headers);
+      setAuthFeedback({
+        type: "success",
+        message: `Saved custom request headers for '${headerDomain.trim()}'.`,
+      });
+      setHeaderModalOpen(false);
+      setHeaderDomain("");
+      setHeaderUserAgent("");
+      setHeaderReferer("");
+      setHeaderAuth("");
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || "Failed to save domain headers.",
+      });
+    }
+  };
+
+  const handleDeleteDomainHeaders = async (domain: string) => {
+    if (!window.api?.deleteDomainHeaders) return;
+    try {
+      await window.api.deleteDomainHeaders(domain);
+      setAuthFeedback({
+        type: "success",
+        message: `Deleted custom headers for '${domain}'.`,
+      });
+      await loadAuthData();
+    } catch (err: any) {
+      setAuthFeedback({
+        type: "error",
+        message: err?.message || "Failed to delete custom headers.",
+      });
+    }
+  };
 
   const showSaveNotice = (msg: string = "Settings saved to local SQLite") => {
     setSavedToast(msg);
@@ -555,7 +750,276 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </section>
 
       {/* ========================================================================= */}
-      {/* 5. Appearance & Diagnostics */}
+      {/* 5. Session Credentials, Cookies & Custom Request Headers */}
+      {/* ========================================================================= */}
+      <section className="bg-brand-dark/20 border border-brand-dark/70 rounded-2xl p-6 space-y-4 shadow-lg shadow-black/40">
+        <div className="flex items-center justify-between border-b border-brand-dark/50 pb-3">
+          <div className="flex items-center space-x-2.5">
+            <KeyRound className="h-5 w-5 text-amber-400" />
+            <div>
+              <h2 className="text-sm font-semibold text-brand-white">Session Credentials & Custom Headers</h2>
+              <p className="text-[11px] text-neutral-400 font-mono">
+                Manage authenticated sessions, browser cookies, and domain-level HTTP headers for restricted platforms.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="flex bg-brand-black border border-brand-dark rounded-lg p-0.5 text-xs font-mono">
+              <button
+                type="button"
+                onClick={() => setAuthActiveTab("cookies")}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  authActiveTab === "cookies"
+                    ? "bg-amber-950/80 text-amber-300 font-bold border border-amber-800/60"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                Cookie Profiles ({cookieProfiles.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthActiveTab("headers")}
+                className={`px-3 py-1 rounded-md transition-colors ${
+                  authActiveTab === "headers"
+                    ? "bg-amber-950/80 text-amber-300 font-bold border border-amber-800/60"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                Domain Headers ({Object.keys(domainHeaders).length})
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={loadAuthData}
+              title="Refresh credentials and profiles"
+              className="p-1.5 bg-brand-black border border-brand-dark text-neutral-400 hover:text-white rounded-lg transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback alert */}
+        {authFeedback && (
+          <div
+            className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between ${
+              authFeedback.type === "success"
+                ? "bg-emerald-950/60 border-emerald-800/60 text-emerald-300"
+                : "bg-red-950/60 border-red-800/60 text-red-300"
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              {authFeedback.type === "success" ? (
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+              ) : (
+                <AlertCircle className="h-4 w-4 shrink-0" />
+              )}
+              <span>{authFeedback.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAuthFeedback(null)}
+              className="text-neutral-400 hover:text-white ml-2 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {authActiveTab === "cookies" ? (
+          <div className="space-y-4">
+            {/* Importers Toolbar */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-brand-black/50 border border-brand-dark/60 rounded-xl p-4">
+              {/* Browser Extractor */}
+              <div className="space-y-2">
+                <div className="flex items-center space-x-2 text-xs font-medium text-neutral-300">
+                  <Globe className="h-4 w-4 text-cyan-400" />
+                  <span>One-Click Browser Cookie Import</span>
+                </div>
+                <p className="text-[10px] text-neutral-400 font-mono">
+                  Decrypts session cookies from local browser profiles (Edge, Chrome, Firefox, etc.).
+                </p>
+                <div className="flex items-center space-x-2 pt-1">
+                  <select
+                    value={selectedBrowser}
+                    onChange={(e) => setSelectedBrowser(e.target.value)}
+                    className="bg-brand-black border border-brand-dark rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 font-mono focus:border-cyan-500 capitalize"
+                  >
+                    {supportedBrowsers.map((b) => (
+                      <option key={b} value={b}>
+                        {b.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Domain filter (e.g. patreon.com)"
+                    value={browserDomainFilter}
+                    onChange={(e) => setBrowserDomainFilter(e.target.value)}
+                    className="flex-1 bg-brand-black border border-brand-dark rounded-lg px-2.5 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 font-mono focus:border-cyan-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleBrowserImport}
+                    disabled={importingBrowser}
+                    className="px-3 py-1.5 bg-cyan-900/60 hover:bg-cyan-800/80 border border-cyan-700/60 text-cyan-200 rounded-lg text-xs font-mono transition-colors flex items-center space-x-1.5 shrink-0"
+                  >
+                    {importingBrowser ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    <span>Extract</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* File Import & Paste */}
+              <div className="space-y-2 md:border-l md:border-brand-dark/60 md:pl-4">
+                <div className="flex items-center space-x-2 text-xs font-medium text-neutral-300">
+                  <FileText className="h-4 w-4 text-amber-400" />
+                  <span>Manual Netscape File & Text Import</span>
+                </div>
+                <p className="text-[10px] text-neutral-400 font-mono">
+                  Import Netscape `.txt` cookies exported from browser extensions or paste raw headers.
+                </p>
+                <div className="flex items-center space-x-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleFileImport}
+                    className="flex-1 px-3 py-1.5 bg-brand-black hover:bg-brand-dark border border-brand-dark text-neutral-200 rounded-lg text-xs font-mono transition-colors flex items-center justify-center space-x-1.5"
+                  >
+                    <Upload className="h-3.5 w-3.5 text-amber-400" />
+                    <span>Import .txt File</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPasteModalOpen(true)}
+                    className="flex-1 px-3 py-1.5 bg-brand-black hover:bg-brand-dark border border-brand-dark text-neutral-200 rounded-lg text-xs font-mono transition-colors flex items-center justify-center space-x-1.5"
+                  >
+                    <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Paste Text</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Profiles Table */}
+            <div className="space-y-2">
+              <span className="text-xs font-medium text-neutral-300">Active Cookie Profiles</span>
+              {cookieProfiles.length === 0 ? (
+                <div className="p-6 text-center border border-dashed border-brand-dark rounded-xl bg-brand-black/30 text-xs font-mono text-neutral-500">
+                  No active session cookie profiles found. Import browser cookies or upload a Netscape .txt file above.
+                </div>
+              ) : (
+                <div className="border border-brand-dark rounded-xl overflow-hidden bg-brand-black/40">
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead className="bg-brand-dark/40 border-b border-brand-dark/60 text-[10px] text-neutral-400 uppercase tracking-wider">
+                      <tr>
+                        <th className="py-2 px-3">Domain</th>
+                        <th className="py-2 px-3">Source</th>
+                        <th className="py-2 px-3">Cookies</th>
+                        <th className="py-2 px-3">Storage Path</th>
+                        <th className="py-2 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-brand-dark/40 text-neutral-300">
+                      {cookieProfiles.map((p) => (
+                        <tr key={p.id} className="hover:bg-brand-dark/20 transition-colors">
+                          <td className="py-2 px-3 font-bold text-amber-300">{p.domain}</td>
+                          <td className="py-2 px-3">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-brand-black border border-brand-dark text-neutral-300 uppercase">
+                              {p.browser_source || "text"}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-cyan-300">{p.cookie_count} entries</td>
+                          <td className="py-2 px-3 text-[10px] text-neutral-500 truncate max-w-xs" title={p.cookie_file_path}>
+                            {p.cookie_file_path}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCookieProfile(p.id, p.domain)}
+                              className="text-red-400 hover:text-red-300 p-1 hover:bg-red-950/50 rounded transition-colors"
+                              title="Delete cookie profile"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Headers Toolbar */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-neutral-300">Configured Domain Request Headers</span>
+              <button
+                type="button"
+                onClick={() => setHeaderModalOpen(true)}
+                className="px-3 py-1.5 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-700/60 text-amber-200 rounded-lg text-xs font-mono transition-colors flex items-center space-x-1.5"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Add Domain Header</span>
+              </button>
+            </div>
+
+            {Object.keys(domainHeaders).length === 0 ? (
+              <div className="p-6 text-center border border-dashed border-brand-dark rounded-xl bg-brand-black/30 text-xs font-mono text-neutral-500">
+                No custom domain headers configured. Standard default User-Agent and CORS headers are used.
+              </div>
+            ) : (
+              <div className="border border-brand-dark rounded-xl overflow-hidden bg-brand-black/40">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-brand-dark/40 border-b border-brand-dark/60 text-[10px] text-neutral-400 uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2 px-3">Domain</th>
+                      <th className="py-2 px-3">User-Agent</th>
+                      <th className="py-2 px-3">Referer</th>
+                      <th className="py-2 px-3">Authorization</th>
+                      <th className="py-2 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-brand-dark/40 text-neutral-300">
+                    {Object.entries(domainHeaders).map(([dom, h]) => (
+                      <tr key={dom} className="hover:bg-brand-dark/20 transition-colors">
+                        <td className="py-2 px-3 font-bold text-amber-300">{dom}</td>
+                        <td className="py-2 px-3 text-[10px] text-neutral-400 truncate max-w-xs" title={h["User-Agent"] || "Default"}>
+                          {h["User-Agent"] || "Default"}
+                        </td>
+                        <td className="py-2 px-3 text-[10px] text-neutral-400 truncate max-w-xs" title={h["Referer"] || "None"}>
+                          {h["Referer"] || "None"}
+                        </td>
+                        <td className="py-2 px-3 text-[10px] text-neutral-400">
+                          {h["Authorization"] ? "Bearer ••••••••" : "None"}
+                        </td>
+                        <td className="py-2 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDomainHeaders(dom)}
+                            className="text-red-400 hover:text-red-300 p-1 hover:bg-red-950/50 rounded transition-colors"
+                            title="Delete custom headers"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ========================================================================= */}
+      {/* 6. Appearance & Diagnostics */}
       {/* ========================================================================= */}
       <section className="bg-brand-dark/20 border border-brand-dark/70 rounded-2xl p-6 space-y-4 shadow-lg shadow-black/40">
         <div className="flex items-center justify-between border-b border-brand-dark/50 pb-3">
@@ -693,6 +1157,145 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               >
                 {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
                 <span>Confirm Reset</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Paste Cookies Modal */}
+      {pasteModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPasteModalOpen(false)}
+        >
+          <div
+            className="bg-brand-black border border-brand-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center space-x-3 text-amber-400">
+              <KeyRound className="h-5 w-5 shrink-0" />
+              <h3 className="text-sm font-bold text-white">Paste Netscape Cookies Text</h3>
+            </div>
+            <p className="text-xs text-neutral-400 font-mono">
+              Paste standard Netscape HTTP cookie file text (tab-separated lines). Supports HttpOnly cookies.
+            </p>
+            <div className="space-y-3 font-mono">
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">Target Domain</label>
+                <input
+                  type="text"
+                  placeholder="e.g. patreon.com or artstation.com"
+                  value={pasteDomain}
+                  onChange={(e) => setPasteDomain(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">Cookie Text Content</label>
+                <textarea
+                  rows={6}
+                  placeholder="# Netscape HTTP Cookie File&#10;.example.com	TRUE	/	TRUE	1893456000	session_id	xyz"
+                  value={pasteText}
+                  onChange={(e) => setPasteText(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg p-2.5 text-xs text-neutral-200 placeholder-neutral-500 font-mono focus:border-amber-500 resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPasteModalOpen(false)}
+                className="px-4 py-2 bg-brand-dark hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-xl text-xs font-mono transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePasteCookies}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-black font-bold rounded-xl text-xs transition-colors flex items-center space-x-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Save Cookies</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Domain Header Modal */}
+      {headerModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setHeaderModalOpen(false)}
+        >
+          <div
+            className="bg-brand-black border border-brand-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center space-x-3 text-cyan-400">
+              <Shield className="h-5 w-5 shrink-0" />
+              <h3 className="text-sm font-bold text-white">Configure Domain Request Headers</h3>
+            </div>
+            <p className="text-xs text-neutral-400 font-mono">
+              Configure custom HTTP headers for requests to this domain and its subdomains.
+            </p>
+            <div className="space-y-3 font-mono">
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">Target Domain</label>
+                <input
+                  type="text"
+                  placeholder="e.g. reddit.com or deviantart.com"
+                  value={headerDomain}
+                  onChange={(e) => setHeaderDomain(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">User-Agent Override (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="Custom User-Agent header..."
+                  value={headerUserAgent}
+                  onChange={(e) => setHeaderUserAgent(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">Referer Header (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="https://www.example.com/"
+                  value={headerReferer}
+                  onChange={(e) => setHeaderReferer(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-neutral-400 uppercase">Authorization Header (Optional)</label>
+                <input
+                  type="password"
+                  placeholder="Bearer token or API key..."
+                  value={headerAuth}
+                  onChange={(e) => setHeaderAuth(e.target.value)}
+                  className="w-full mt-1 bg-brand-dark/40 border border-brand-dark rounded-lg px-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 focus:border-cyan-500"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setHeaderModalOpen(false)}
+                className="px-4 py-2 bg-brand-dark hover:bg-neutral-800 text-neutral-300 hover:text-white rounded-xl text-xs font-mono transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDomainHeaders}
+                className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-black font-bold rounded-xl text-xs transition-colors flex items-center space-x-1.5"
+              >
+                <Check className="h-3.5 w-3.5" />
+                <span>Save Headers</span>
               </button>
             </div>
           </div>

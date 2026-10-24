@@ -132,6 +132,30 @@ def extract_video_info(
     if ydl_opts:
         base_opts.update(ydl_opts)
 
+    if "cookiefile" not in base_opts:
+        try:
+            from pathlib import Path
+
+            from ..db import default_repository
+
+            cookie_profile = default_repository.get_cookie_profile_for_domain(safe_url)
+            if cookie_profile and cookie_profile.cookie_file_path:
+                p = Path(cookie_profile.cookie_file_path)
+                if p.exists() and p.is_file():
+                    base_opts["cookiefile"] = str(p)
+        except Exception:
+            pass
+
+    if "http_headers" not in base_opts:
+        try:
+            from ..db import default_repository
+
+            domain_headers = default_repository.get_domain_headers(safe_url)
+            if domain_headers:
+                base_opts["http_headers"] = domain_headers
+        except Exception:
+            pass
+
     try:
         with yt_dlp.YoutubeDL(base_opts) as ydl:
             info = ydl.extract_info(safe_url, download=False)

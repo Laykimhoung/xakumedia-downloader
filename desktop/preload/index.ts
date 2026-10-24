@@ -8,6 +8,7 @@ import type {
   ClearCompletedDownloadsResult,
   ClearScanHistoryResult,
   ConvertFormatResult,
+  CookieProfileRecord,
   DeleteDownloadedMediaResult,
   DesktopApi,
   DiscoveredMediaItem,
@@ -34,6 +35,7 @@ import type {
   SetDownloadConcurrencyResult,
   StartBatchDownloadResult,
   StartDownloadResult,
+  SupportedBrowsersResult,
   SystemInfo,
   ThumbnailResult,
   ToggleSaveResult,
@@ -305,6 +307,58 @@ const api: DesktopApi = {
   },
   selectFolder: async (defaultPath?: string): Promise<string | null> => {
     return ipcRenderer.invoke("dialog:selectFolder", defaultPath);
+  },
+  listSupportedBrowsers: async (): Promise<SupportedBrowsersResult> => {
+    return ipcRenderer.invoke("python:listSupportedBrowsers");
+  },
+  importBrowserCookies: async (
+    browser: string,
+    domain?: string
+  ): Promise<{ profile: CookieProfileRecord }> => {
+    return ipcRenderer.invoke("python:importBrowserCookies", browser, domain);
+  },
+  saveCookiesText: async (
+    domain: string,
+    content: string
+  ): Promise<{ profile: CookieProfileRecord }> => {
+    return ipcRenderer.invoke("python:saveCookiesText", domain, content);
+  },
+  importCookiesFile: async (
+    filePath: string,
+    domain?: string
+  ): Promise<{ profile: CookieProfileRecord }> => {
+    return ipcRenderer.invoke("python:importCookiesFile", filePath, domain);
+  },
+  listCookieProfiles: async (): Promise<{ profiles: CookieProfileRecord[]; count: number }> => {
+    return ipcRenderer.invoke("python:listCookieProfiles");
+  },
+  deleteCookieProfile: async (
+    profileId: string
+  ): Promise<{ deleted: boolean; profile_id: string }> => {
+    return ipcRenderer.invoke("python:deleteCookieProfile", profileId);
+  },
+  getDomainHeaders: async (
+    domain?: string
+  ): Promise<{
+    domain?: string;
+    headers?: Record<string, string>;
+    domain_headers?: Record<string, Record<string, string>>;
+  }> => {
+    return ipcRenderer.invoke("python:getDomainHeaders", domain);
+  },
+  setDomainHeaders: async (
+    domain: string,
+    headers: Record<string, string>
+  ): Promise<{ domain: string; headers: Record<string, string> }> => {
+    return ipcRenderer.invoke("python:setDomainHeaders", domain, headers);
+  },
+  deleteDomainHeaders: async (
+    domain: string
+  ): Promise<{ deleted: boolean; domain: string }> => {
+    return ipcRenderer.invoke("python:deleteDomainHeaders", domain);
+  },
+  selectCookieFile: async (defaultPath?: string): Promise<string | null> => {
+    return ipcRenderer.invoke("dialog:selectCookieFile", defaultPath);
   },
 };
 

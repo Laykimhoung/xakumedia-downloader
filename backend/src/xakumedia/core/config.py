@@ -60,6 +60,16 @@ class AppConfig(BaseModel):
         return self.data_dir / "logs"
 
     @property
+    def auth_dir(self) -> Path:
+        """Dedicated directory for secure local cookies and session credentials."""
+        return self.data_dir / "auth"
+
+    @property
+    def cookies_dir(self) -> Path:
+        """Dedicated directory for stored Netscape cookie files."""
+        return self.auth_dir / "cookies"
+
+    @property
     def database_path(self) -> Path:
         """Local SQLite database file path."""
         return self.data_dir / "xakumedia.db"
@@ -72,6 +82,8 @@ class AppConfig(BaseModel):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.video_download_dir.mkdir(parents=True, exist_ok=True)
         self.image_download_dir.mkdir(parents=True, exist_ok=True)
+        self.auth_dir.mkdir(parents=True, exist_ok=True)
+        self.cookies_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global default configuration instance

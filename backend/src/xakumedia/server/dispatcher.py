@@ -527,6 +527,106 @@ class RpcDispatcher:
             repo = self.repository or default_repository
             return repo.reset_preferences()
 
+        # Auth, Cookies & Custom Headers Handlers
+        def list_supported_browsers_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..auth.cookies import list_supported_browsers
+
+            return {"browsers": list_supported_browsers()}
+
+        def import_browser_cookies_handler(params: dict[str, Any]) -> dict[str, Any]:
+            browser = params.get("browser")
+            if not browser:
+                raise TypeError("Parameter 'browser' is required.")
+            domain = params.get("domain")
+
+            from ..auth.cookies import extract_browser_cookies
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            profile, _ = extract_browser_cookies(str(browser), domain_filter=domain)
+            repo.save_cookie_profile(profile)
+            return {"profile": profile.model_dump()}
+
+        def save_cookies_text_handler(params: dict[str, Any]) -> dict[str, Any]:
+            domain = params.get("domain")
+            content = params.get("content")
+            if not domain or not content:
+                raise TypeError("Parameters 'domain' and 'content' are required.")
+
+            from ..auth.cookies import save_cookies_text
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            profile, _ = save_cookies_text(str(domain), str(content))
+            repo.save_cookie_profile(profile)
+            return {"profile": profile.model_dump()}
+
+        def import_cookies_file_handler(params: dict[str, Any]) -> dict[str, Any]:
+            file_path = params.get("file_path")
+            if not file_path:
+                raise TypeError("Parameter 'file_path' is required.")
+            domain = params.get("domain")
+
+            from ..auth.cookies import import_cookies_file
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            profile, _ = import_cookies_file(str(file_path), domain_hint=domain)
+            repo.save_cookie_profile(profile)
+            return {"profile": profile.model_dump()}
+
+        def list_cookie_profiles_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            profiles = repo.list_cookie_profiles()
+            return {"profiles": [p.model_dump() for p in profiles], "count": len(profiles)}
+
+        def delete_cookie_profile_handler(params: dict[str, Any]) -> dict[str, Any]:
+            profile_id = params.get("profile_id")
+            if not profile_id:
+                raise TypeError("Parameter 'profile_id' is required.")
+
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            deleted = repo.delete_cookie_profile(str(profile_id))
+            return {"deleted": deleted, "profile_id": profile_id}
+
+        def get_domain_headers_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            domain = params.get("domain")
+            if domain:
+                headers = repo.get_domain_headers(str(domain))
+                return {"domain": domain, "headers": headers}
+            all_headers = repo.list_all_domain_headers()
+            return {"domain_headers": all_headers}
+
+        def set_domain_headers_handler(params: dict[str, Any]) -> dict[str, Any]:
+            domain = params.get("domain")
+            headers = params.get("headers")
+            if not domain or headers is None or not isinstance(headers, dict):
+                raise TypeError("Parameters 'domain' and 'headers' (dict) are required.")
+
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            repo.save_domain_headers(str(domain), headers)
+            return {"domain": domain, "headers": headers}
+
+        def delete_domain_headers_handler(params: dict[str, Any]) -> dict[str, Any]:
+            domain = params.get("domain")
+            if not domain:
+                raise TypeError("Parameter 'domain' is required.")
+
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            deleted = repo.delete_domain_headers(str(domain))
+            return {"deleted": deleted, "domain": domain}
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -567,4 +667,13 @@ class RpcDispatcher:
         self.register("get_preferences", get_preferences_handler)
         self.register("update_preferences", update_preferences_handler)
         self.register("reset_preferences", reset_preferences_handler)
+        self.register("list_supported_browsers", list_supported_browsers_handler)
+        self.register("import_browser_cookies", import_browser_cookies_handler)
+        self.register("save_cookies_text", save_cookies_text_handler)
+        self.register("import_cookies_file", import_cookies_file_handler)
+        self.register("list_cookie_profiles", list_cookie_profiles_handler)
+        self.register("delete_cookie_profile", delete_cookie_profile_handler)
+        self.register("get_domain_headers", get_domain_headers_handler)
+        self.register("set_domain_headers", set_domain_headers_handler)
+        self.register("delete_domain_headers", delete_domain_headers_handler)
 

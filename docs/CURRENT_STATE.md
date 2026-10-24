@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 16 — Bandwidth Throttling & Network Speed Limits  
-**Overall Status:** Task Queue Crash Recovery & Interrupted Download Resumption Complete  
+**Active Milestone:** Milestone 17 — Session Credentials, Custom Headers & Cookie Import  
+**Overall Status:** Session Credentials, Netscape Cookie Parser, Browser Cookie Extraction & Domain Headers Complete  
 
 ---
 
@@ -11,9 +11,9 @@
 XakuMedia is a local-first Windows 11 desktop bulk media downloader developed under the XAKURAII identity. It enables users to discover, preview, organize, and download publicly accessible images and videos from direct URLs, galleries, and supported platforms.
 
 The system relies on a secure 3-tier desktop architecture:
-1. **Frontend (Renderer):** React + TypeScript + Vite + Tailwind CSS + Lucide Icons. In-app video/audio player modal, high-resolution image lightbox with zoom/pan/rotate, media library search/filter/sort, gallery selective bulk download toolbar, download queue slot controls, application settings & preference management, and diagnostics.
-2. **Desktop Shell (Electron Main):** Process isolation, secure context-isolated IPC boundary, privileged `media-loader://` streaming protocol with HTTP 206 Partial Content range support, native Windows folder picker dialog (`dialog.showOpenDialog`), window lifecycle, and Python engine management.
-3. **Backend Engine (Python 3.12):** URL classification, extraction providers (`yt-dlp`, `gallery-dl`, `httpx`), multi-slot concurrent download manager with HTTP Range resumption, FFmpeg stream merging & media inspection, Pillow & FFmpeg local thumbnail caching, SQLite media library & query engine, persistent key-value application preferences (`app_preferences`), safe disk deletion, and metadata export.
+1. **Frontend (Renderer):** React + TypeScript + Vite + Tailwind CSS + Lucide Icons. In-app video/audio player modal, high-resolution image lightbox with zoom/pan/rotate, media library search/filter/sort, gallery selective bulk download toolbar, download queue slot controls, cookie profile management, custom domain headers, application settings, and diagnostics.
+2. **Desktop Shell (Electron Main):** Process isolation, secure context-isolated IPC boundary, privileged `media-loader://` streaming protocol with HTTP 206 Partial Content range support, native Windows folder picker dialog (`dialog:selectFolder`), native cookie file picker dialog (`dialog:selectCookieFile`), window lifecycle, and Python engine management.
+3. **Backend Engine (Python 3.12):** URL classification, extraction providers (`yt-dlp`, `gallery-dl`, `httpx`), multi-slot concurrent download manager with HTTP Range resumption, token-bucket bandwidth throttler, session cookie manager & browser extraction, subdomain-hierarchical request header synthesis, FFmpeg stream merging & media inspection, Pillow & FFmpeg local thumbnail caching, SQLite media library & query engine, persistent key-value application preferences (`app_preferences`), safe disk deletion, and metadata export.
 
 ---
 
@@ -38,6 +38,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 14** | Application Settings & Preference Management | **Completed** | Persistent SQLite `app_preferences` key-value repository methods (`get_preference`, `set_preference`, `get_all_preferences`, `update_preferences`, `reset_preferences`, `load_saved_preferences`); dynamic `default_config` synchronization and live queue concurrency updates; JSON-RPC handlers (`get_preferences`, `update_preferences`, `reset_preferences`); native Windows folder picker dialog (`dialog:selectFolder` via `dialog.showOpenDialog`); typed desktop IPC bridge (`getPreferences`, `updatePreferences`, `resetPreferences`, `selectFolder`); modern React `SettingsView.tsx` with folder picker, concurrency slider (1–10), network timeout/retries, video/image quality preferences, theme selector (dark/light/system), runtime diagnostics, and factory reset confirmation modal; 6 dedicated unit tests (90 total passing); 0 ruff errors; frontend typecheck passing; desktop smoke test verified preferences over IPC. |
 | **Milestone 15** | Task Queue Crash Recovery & Interrupted Resumption | **Completed** | Task recovery service (`downloader/recovery.py`); audits SQLite tasks in `downloading`, `merging`, `scanning`, `queued` against disk `.part` files; marks finished files `completed`; updates partial byte counts and transitions to `paused`; cleans up corrupted intermediate merge outputs; auto-resumes tasks when `auto_start_downloads` is enabled; JSON-RPC handler `recover_interrupted_tasks` and dual notification `download:recovery_completed`; Electron startup audit and `python:recoverInterruptedTasks` IPC bridge; React `recoveryBanner` alert and manual "Recover" action; 7 unit tests (97 total passing); 0 ruff errors; frontend typecheck and desktop smoke test passing. |
 | **Milestone 16** | Bandwidth Throttling & Network Speed Limits | **Completed** | Thread-safe token bucket rate limiter (`downloader/throttler.py`) with dynamic slice sleeping (`BandwidthThrottler`); global bandwidth rate limiting across all concurrent stream worker threads in `downloader/stream.py` and `downloader/manager.py`; dynamic live rate adjustment without transfer interruption; persistent `max_download_speed_kbps` in SQLite `app_preferences` and runtime synchronization; JSON-RPC handlers (`set_speed_limit`, `get_speed_limit`); desktop IPC bridge (`setSpeedLimit`, `getSpeedLimit`); React `SettingsView.tsx` with speed presets (Unlimited, 500 KB/s, 1 MB/s, 2 MB/s, 5 MB/s, 10 MB/s, 20 MB/s, 50 MB/s) and custom input; Downloads toolbar quick speed selector; 8 dedicated unit tests (105 total passing in 5.13s); 0 ruff errors; desktop smoke test verified speed limit get/set over IPC. |
+| **Milestone 17** | Session Credentials, Custom Headers & Cookie Import | **Completed** | SQLite schema Migration V2 (`cookie_profiles`, `domain_headers`); dedicated `auth/` module (`models.py`, `cookies.py`, `headers.py`); Netscape cookie format parser & serializer with `#HttpOnly_` prefix handling; automated local browser cookie extraction (`chrome`, `edge`, `firefox`, `brave`, `opera`, `vivaldi`) via `yt-dlp`'s cookiejar engine; subdomain-hierarchical request header matching; seamless injection into `download_stream` (`httpx`), `extract_video` (`yt-dlp`), and `extract_gallery_info` (`gallery-dl`); 9 JSON-RPC handlers; desktop IPC bridge and native `.txt` file selector dialog (`dialog:selectCookieFile`); modern React controls in `SettingsView.tsx`; 9 dedicated unit tests (114 total passing in 6.40s); 0 ruff errors; desktop smoke test verified auth/cookies over IPC. |
 
 ---
 
@@ -50,59 +51,62 @@ The system relies on a secure 3-tier desktop architecture:
   - Git: `2.52.0.windows.1`
   - FFmpeg: `n4.4.2-4-g944ee75106-20220916`
   - FFprobe: `n4.4.2-4-g944ee75106-20220916`
-- **Bandwidth Throttling & Network Speed Limits (Milestone 16):**
-  - **Token Bucket Algorithm (`downloader/throttler.py`):**
-    - `BandwidthThrottler` class managing refill tokens based on elapsed monotonic time.
-    - Capacity dynamically scaled to `max(128KB, rate * 0.5s)` for smooth burst absorption.
-    - Thread-safe mutex lock protecting token math and refill calculations across concurrent workers.
-    - Micro-sliced sleeping (`min(0.05, deficit / rate)`) outside lock to keep transfers responsive to pause and cancellation events (<50ms reaction time).
-    - Unlimited speed bypass: `max_speed_kbps <= 0` immediately returns with 0s overhead.
-  - **Streaming Integration (`downloader/stream.py` & `downloader/manager.py`):**
-    - `download_stream` consumes bytes from throttler on every chunk iteration.
-    - Video track, audio track, and single-stream downloads all share the global `self.throttler`.
-    - Dynamic on-the-fly adjustment: updating limit updates refill rate instantly without restarting active socket streams.
-  - **Database Persistence & Runtime Config Sync (`db/repository.py` & `core/config.py`):**
-    - Persists `max_download_speed_kbps` in SQLite `app_preferences`.
-    - Clamped between 0 and 1,000,000 KB/s (1 GB/s).
-    - Loaded on application startup into `default_config.max_download_speed_kbps` and active `default_throttler`.
-    - Factory reset restores 0 KB/s (unlimited).
-  - **JSON-RPC Handlers (`server/dispatcher.py`):**
-    - `set_speed_limit`: updates global speed limit in KB/s.
-    - `get_speed_limit`: returns active speed limit in KB/s.
-  - **Desktop IPC Bridge & Preload (`desktop/main/index.ts`, `desktop/preload/index.ts`, `desktop/shared/types.ts`):**
-    - `python:setSpeedLimit` and `python:getSpeedLimit` IPC handlers.
-    - Typed `setSpeedLimit` and `getSpeedLimit` on `window.api`.
-  - **Frontend User Controls (`frontend/src/components/SettingsView.tsx` & `frontend/src/App.tsx`):**
-    - Dedicated Speed Limit controls in `SettingsView.tsx` with preset chips and custom KB/s numeric input.
-    - Quick speed limit selector chips in Downloads tab toolbar (`∞`, `500K`, `1M`, `2M`, `5M`, `10M`) with cyan active highlights.
-    - Real-time synchronization between settings changes and toolbar display.
-  - **Developer Tooling (`scripts/run-python-server.mjs`):**
-    - Added `speed [kbps]` CLI command and interactive REPL command.
+- **Session Credentials, Custom Headers & Cookie Import (Milestone 17):**
+  - **Database Migration V2 (`db/schema.py`):**
+    - `cookie_profiles`: `id` (TEXT PRIMARY KEY), `domain` (TEXT), `browser_source` (TEXT), `cookie_file_path` (TEXT), `cookie_count` (INTEGER), `created_at` (TIMESTAMP), `updated_at` (TIMESTAMP). Domain indexing enabled.
+    - `domain_headers`: `domain` (TEXT PRIMARY KEY), `headers_json` (TEXT), `updated_at` (TIMESTAMP).
+    - Upgraded `CURRENT_SCHEMA_VERSION = 2`.
+  - **Netscape Cookie Engine (`auth/cookies.py`):**
+    - `parse_netscape_cookies`: parses tab-delimited Netscape format with `#HttpOnly_` prefix support, skipping comments and blank lines.
+    - `format_netscape_cookies`: serializes `CookieEntry` objects with standard `# Netscape HTTP Cookie File` header.
+    - `save_cookies_text`: persists sanitized cookie files in `%LOCALAPPDATA%\XakuMedia\auth\cookies\`.
+    - `import_cookies_file`: imports external `.txt` cookie files with automatic domain inference.
+    - `extract_browser_cookies`: extracts cookies directly from Edge, Chrome, Firefox, Brave, Opera, and Vivaldi profiles using `yt-dlp`'s Windows DPAPI-backed cookiejar engine.
+  - **Domain Header Resolution & Hierarchy (`auth/headers.py`):**
+    - Subdomain hierarchy fallback: e.g. `v.redd.it` falls back to `redd.it` when specific child rules are absent.
+    - `build_request_headers_for_url`: merges default browser headers (User-Agent, CORS) with custom domain overrides (Authorization tokens, Referer).
+  - **Extractor & Downloader Integration:**
+    - `downloader/stream.py`: loads cookies dictionary from active profile and passes to `httpx.Client(cookies=req_cookies, headers=req_headers)`.
+    - `extractors/video.py`: queries `get_cookie_profile_for_domain` and injects `cookiefile` and `http_headers` into `yt-dlp` options.
+    - `extractors/gallery.py`: sets `gallery_dl.config.set(("extractor",), "cookies", cookie_path)`.
+  - **JSON-RPC Server Handlers (`server/dispatcher.py`):**
+    - `list_supported_browsers`, `import_browser_cookies`, `save_cookies_text`, `import_cookies_file`, `list_cookie_profiles`, `delete_cookie_profile`, `get_domain_headers`, `set_domain_headers`, `delete_domain_headers`.
+  - **Desktop IPC Bridge & Native Dialog (`desktop/main/index.ts`, `desktop/preload/index.ts`, `desktop/shared/types.ts`):**
+    - Registered 9 IPC handlers.
+    - `dialog:selectCookieFile` with `.txt` filter via `dialog.showOpenDialog`.
+    - Context-isolated preload bindings under `window.api`.
+  - **Frontend UI Controls (`frontend/src/components/SettingsView.tsx`):**
+    - Card: "Session Credentials & Custom Headers" with tabbed view (Cookie Profiles vs Domain Headers).
+    - One-click browser extractor with dropdown and domain filter.
+    - Native file import button (`.txt`) and paste text modal.
+    - Active profiles table with domain, source badge, cookie count, and delete action.
+    - Domain headers table with Add/Delete modal.
   - **Automated Verification:**
-    - 8 unit tests in `backend/tests/test_throttler.py` (all passing).
-    - 105 total pytest tests passing in 5.13s across 16 test modules.
-    - 0 ruff lint errors (`ruff check backend`).
+    - 9 dedicated unit tests in `backend/tests/test_auth.py` (all passing).
+    - 114 total pytest tests passing across 17 test modules in 6.40s.
+    - 0 ruff lint errors (`ruff check backend/`).
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
-    - Production bundle (`npm run build:frontend`) builds in 2.53s.
-    - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Speed limit verified over IPC: set=512, got=512`.
+    - Production bundle (`npm run build:frontend`) builds in 7.30s.
+    - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Auth/cookies verified over IPC: browsers=6, profiles=0`.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
 - Packaging as a standalone Windows installer (.exe / MSI via electron-builder) is scheduled for later milestones.
-- Cookies and authenticated session management for platforms requiring login credentials are scheduled for Milestone 17.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 17 — Session Credentials, Custom Headers & Cookie Import**
+**Next Milestone:** **Milestone 18 — Standalone Windows Installer, Packaging & Build Distribution**
 
 ### Acceptance Criteria:
-1. Provide secure local credential and cookie storage for platforms requiring authenticated access.
-2. Support browser cookie importing (e.g. Netscape cookie file format or direct browser extraction via yt-dlp/gallery-dl `--cookies-from-browser`).
-3. Support custom HTTP request headers (User-Agent, Referer, Authorization) per domain in SQLite preferences.
-4. Protect credential storage using local encryption or Windows DPAPI / safe storage primitives without plaintext exposure.
-5. Provide automated unit tests for cookie parsing, header injection, and security validation.
-6. Document authentication architecture and learning notes in `my-learning/`.
+1. Configure `electron-builder` for automated Windows x64 desktop packaging.
+2. Bundle the Python runtime or executable with virtual environment dependencies.
+3. Package FFmpeg/FFprobe binaries alongside the desktop shell for zero-configuration user installation.
+4. Generate both a Windows NSIS Installer (`.exe`) and a Portable executable.
+5. Provide desktop application icons (`.ico`, `.png`) matching the XAKURAII brand identity.
+6. Verify packaged application launch, clean background engine lifecycle, and smoke test execution on production bundles.
+7. Document installation and packaging procedures in `docs/` and personal learning notes in `my-learning/`.
+

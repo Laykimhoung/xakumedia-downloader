@@ -111,6 +111,19 @@ def extract_gallery_info(
     # 2. Configure gallery-dl options
     gdl_config.set(("extractor",), "timeout", timeout)
 
+    try:
+        from pathlib import Path
+
+        from ..db import default_repository
+
+        cookie_profile = default_repository.get_cookie_profile_for_domain(safe_url)
+        if cookie_profile and cookie_profile.cookie_file_path:
+            p = Path(cookie_profile.cookie_file_path)
+            if p.exists() and p.is_file():
+                gdl_config.set(("extractor",), "cookies", str(p))
+    except Exception:
+        pass
+
     # 3. Collect media metadata using DataJob with file=None to prevent stdout pollution
     try:
         job = DataJob(safe_url, file=None)

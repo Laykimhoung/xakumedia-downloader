@@ -248,6 +248,26 @@ export interface PauseAllDownloadsResult {
   paused_count: number;
 }
 
+export interface CookieProfileRecord {
+  id: string;
+  domain: string;
+  browser_source?: string | null;
+  cookie_file_path: string;
+  cookie_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DomainHeaderRecord {
+  domain: string;
+  headers: Record<string, string>;
+  updated_at: string;
+}
+
+export interface SupportedBrowsersResult {
+  browsers: string[];
+}
+
 export interface ResumeAllDownloadsResult {
   resumed_count: number;
 }
@@ -571,6 +591,72 @@ export interface DesktopApi {
    * Open native Windows directory selector dialog.
    */
   selectFolder?: (defaultPath?: string) => Promise<string | null>;
+
+  /**
+   * List installed browsers supported for automated cookie extraction.
+   */
+  listSupportedBrowsers?: () => Promise<SupportedBrowsersResult>;
+
+  /**
+   * Extract session cookies from an installed browser profile for a specific domain.
+   */
+  importBrowserCookies?: (
+    browser: string,
+    domain?: string
+  ) => Promise<{ profile: CookieProfileRecord }>;
+
+  /**
+   * Save raw Netscape cookie text for a domain into managed storage.
+   */
+  saveCookiesText?: (
+    domain: string,
+    content: string
+  ) => Promise<{ profile: CookieProfileRecord }>;
+
+  /**
+   * Import an existing Netscape cookie file from disk into managed storage.
+   */
+  importCookiesFile?: (
+    filePath: string,
+    domain?: string
+  ) => Promise<{ profile: CookieProfileRecord }>;
+
+  /**
+   * List all saved cookie profiles in SQLite.
+   */
+  listCookieProfiles?: () => Promise<{ profiles: CookieProfileRecord[]; count: number }>;
+
+  /**
+   * Delete a saved cookie profile and its file from disk.
+   */
+  deleteCookieProfile?: (profileId: string) => Promise<{ deleted: boolean; profile_id: string }>;
+
+  /**
+   * Get custom headers for a domain (or all domains if omitted).
+   */
+  getDomainHeaders?: (domain?: string) => Promise<{
+    domain?: string;
+    headers?: Record<string, string>;
+    domain_headers?: Record<string, Record<string, string>>;
+  }>;
+
+  /**
+   * Set custom HTTP request headers for a domain.
+   */
+  setDomainHeaders?: (
+    domain: string,
+    headers: Record<string, string>
+  ) => Promise<{ domain: string; headers: Record<string, string> }>;
+
+  /**
+   * Remove custom headers configured for a domain.
+   */
+  deleteDomainHeaders?: (domain: string) => Promise<{ deleted: boolean; domain: string }>;
+
+  /**
+   * Open native file dialog to select a cookie text file (.txt).
+   */
+  selectCookieFile?: (defaultPath?: string) => Promise<string | null>;
 }
 
 export interface AppPreferences {

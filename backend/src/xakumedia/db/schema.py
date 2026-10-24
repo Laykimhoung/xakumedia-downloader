@@ -7,7 +7,7 @@ from ..exceptions.base import DatabaseError
 
 logger = get_logger("db.schema")
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 MIGRATION_V1 = """
 -- Schema version tracking
@@ -98,6 +98,28 @@ CREATE TABLE IF NOT EXISTS app_preferences (
 );
 """
 
+MIGRATION_V2 = """
+-- Session Cookie Profiles
+CREATE TABLE IF NOT EXISTS cookie_profiles (
+    id TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    browser_source TEXT,
+    cookie_file_path TEXT NOT NULL,
+    cookie_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_cookie_profiles_domain ON cookie_profiles(domain);
+
+-- Domain Custom Request Headers
+CREATE TABLE IF NOT EXISTS domain_headers (
+    domain TEXT PRIMARY KEY,
+    headers_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
 
 def get_current_version(conn: sqlite3.Connection) -> int:
     """Retrieve the current schema version from the database."""
@@ -125,6 +147,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (1)")
             conn.commit()
             logger.info("Database migration V1 applied successfully.")
+
+        if current_v < 2:
+            logger.info("Applying database migration V2...")
+            conn.executescript(MIGRATION_V2)
+            conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+            conn.commit()
+            logger.info("Database migration V2 applied successfully.")
 
         # Self-healing column checks for pre-existing local databases
         cursor = conn.cursor()

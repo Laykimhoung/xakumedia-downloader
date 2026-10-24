@@ -40,6 +40,7 @@ def download_stream(
     cancel_event: threading.Event | None = None,
     pause_event: threading.Event | None = None,
     headers: dict[str, str] | None = None,
+    cookies: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
     allowed_root: Path | None = None,
     throttler: BandwidthThrottler | None = None,
@@ -84,9 +85,29 @@ def download_stream(
         except OSError:
             existing_bytes = 0
 
-    req_headers = {"User-Agent": "XakuMedia/0.1.0"}
-    if headers:
-        req_headers.update(headers)
+    from ..auth.cookies import get_cookies_dict_from_file
+    from ..auth.headers import build_request_headers_for_url
+    from ..db import default_repository
+
+    # Resolve domain-specific headers and merge
+    domain_headers = default_repository.list_all_domain_headers()
+    req_headers = build_request_headers_for_url(
+        url,
+        headers_map=domain_headers,
+        extra_headers=headers,
+    )
+
+    # Resolve domain-specific cookies and merge
+    req_cookies: dict[str, str] = {}
+    try:
+        cookie_profile = default_repository.get_cookie_profile_for_domain(url)
+        if cookie_profile and cookie_profile.cookie_file_path:
+            req_cookies.update(get_cookies_dict_from_file(cookie_profile.cookie_file_path))
+    except Exception as c_err:
+        logger.debug(f"Could not load domain cookies for {url}: {c_err}")
+
+    if cookies:
+        req_cookies.update(cookies)
 
     if existing_bytes > 0:
         req_headers["Range"] = f"bytes={existing_bytes}-"
@@ -94,7 +115,12 @@ def download_stream(
     timeout = httpx.Timeout(timeout_seconds or default_config.request_timeout_seconds)
 
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True, headers=req_headers) as client:
+        with httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=req_headers,
+            cookies=req_cookies,
+        ) as client:
             with client.stream("GET", url) as response:
                 if response.status_code in (401, 403):
                     raise PrivateMediaError(

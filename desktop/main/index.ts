@@ -343,6 +343,75 @@ function registerIpcHandlers(): void {
   ipcMain.handle("preferences:reset", async () => {
     return pythonBridge.sendRequest("reset_preferences");
   });
+
+  // Authentication, Cookies & Custom Request Headers
+  ipcMain.handle("python:listSupportedBrowsers", async () => {
+    return pythonBridge.sendRequest("list_supported_browsers");
+  });
+
+  ipcMain.handle(
+    "python:importBrowserCookies",
+    async (_event, browser: string, domain?: string) => {
+      return pythonBridge.sendRequest("import_browser_cookies", { browser, domain });
+    }
+  );
+
+  ipcMain.handle(
+    "python:saveCookiesText",
+    async (_event, domain: string, content: string) => {
+      return pythonBridge.sendRequest("save_cookies_text", { domain, content });
+    }
+  );
+
+  ipcMain.handle(
+    "python:importCookiesFile",
+    async (_event, filePath: string, domain?: string) => {
+      return pythonBridge.sendRequest("import_cookies_file", { file_path: filePath, domain });
+    }
+  );
+
+  ipcMain.handle("python:listCookieProfiles", async () => {
+    return pythonBridge.sendRequest("list_cookie_profiles");
+  });
+
+  ipcMain.handle("python:deleteCookieProfile", async (_event, profileId: string) => {
+    return pythonBridge.sendRequest("delete_cookie_profile", { profile_id: profileId });
+  });
+
+  ipcMain.handle("python:getDomainHeaders", async (_event, domain?: string) => {
+    return pythonBridge.sendRequest("get_domain_headers", domain ? { domain } : {});
+  });
+
+  ipcMain.handle(
+    "python:setDomainHeaders",
+    async (_event, domain: string, headers: Record<string, string>) => {
+      return pythonBridge.sendRequest("set_domain_headers", { domain, headers });
+    }
+  );
+
+  ipcMain.handle("python:deleteDomainHeaders", async (_event, domain: string) => {
+    return pythonBridge.sendRequest("delete_domain_headers", { domain });
+  });
+
+  ipcMain.handle(
+    "dialog:selectCookieFile",
+    async (_event, defaultPath?: string): Promise<string | null> => {
+      const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+      const result = await dialog.showOpenDialog(focusedWindow || (undefined as any), {
+        title: "Select Netscape Cookie File",
+        defaultPath: defaultPath || undefined,
+        properties: ["openFile"],
+        filters: [
+          { name: "Cookie Files (*.txt)", extensions: ["txt"] },
+          { name: "All Files (*.*)", extensions: ["*"] },
+        ],
+      });
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      return result.filePaths[0];
+    }
+  );
 }
 
 function createWindow(): void {
@@ -460,6 +529,18 @@ function createWindow(): void {
         await pythonBridge.sendRequest("set_speed_limit", { speed_limit_kbps: 0 });
         console.log(
           `[smoke-test] Speed limit verified over IPC: set=${speedSetResponse.speed_limit_kbps}, got=${speedGetResponse.speed_limit_kbps}`
+        );
+
+        // Verify Cookie Profile and Supported Browsers over IPC
+        const browserResponse = await pythonBridge.sendRequest<{ browsers: string[] }>(
+          "list_supported_browsers"
+        );
+        const cookieProfilesResponse = await pythonBridge.sendRequest<{
+          profiles: unknown[];
+          count: number;
+        }>("list_cookie_profiles");
+        console.log(
+          `[smoke-test] Auth/cookies verified over IPC: browsers=${browserResponse.browsers.length}, profiles=${cookieProfilesResponse.count}`
         );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);

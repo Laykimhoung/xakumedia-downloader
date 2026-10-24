@@ -804,6 +804,206 @@ class MediaRepository:
         if "log_level" in preferences:
             default_config.log_level = str(preferences["log_level"])
 
+    # =========================================================================
+    # Cookie Profiles & Authentication
+    # =========================================================================
+
+    def save_cookie_profile(self, profile: Any) -> None:
+        """Persist or update a session cookie profile."""
+        now = datetime.now(UTC).isoformat()
+        with get_db_session(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO cookie_profiles (
+                    id, domain, browser_source, cookie_file_path,
+                    cookie_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    domain = excluded.domain,
+                    browser_source = excluded.browser_source,
+                    cookie_file_path = excluded.cookie_file_path,
+                    cookie_count = excluded.cookie_count,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    profile.id,
+                    profile.domain.lower().lstrip("."),
+                    profile.browser_source,
+                    profile.cookie_file_path,
+                    profile.cookie_count,
+                    profile.created_at or now,
+                    now,
+                ),
+            )
+
+    def get_cookie_profile(self, profile_id: str) -> Any | None:
+        """Retrieve a cookie profile by ID."""
+        from ..auth.models import CookieProfileRecord
+
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM cookie_profiles WHERE id = ?", (profile_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return CookieProfileRecord(
+                id=row["id"],
+                domain=row["domain"],
+                browser_source=row["browser_source"],
+                cookie_file_path=row["cookie_file_path"],
+                cookie_count=row["cookie_count"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+
+    def get_cookie_profile_for_domain(self, domain: str) -> Any | None:
+        """Find the active cookie profile matching a domain or parent domain."""
+        from ..auth.headers import extract_domain_from_url
+        from ..auth.models import CookieProfileRecord
+
+        clean_dom = extract_domain_from_url(domain)
+        parts = clean_dom.split(".")
+        candidates: list[str] = []
+        while parts:
+            candidates.append(".".join(parts))
+            parts.pop(0)
+
+        with get_db_session(self.db_path) as conn:
+            for cand in candidates:
+                cursor = conn.execute(
+                    "SELECT * FROM cookie_profiles WHERE domain = ? "
+                    "ORDER BY updated_at DESC LIMIT 1",
+                    (cand,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return CookieProfileRecord(
+                        id=row["id"],
+                        domain=row["domain"],
+                        browser_source=row["browser_source"],
+                        cookie_file_path=row["cookie_file_path"],
+                        cookie_count=row["cookie_count"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                    )
+        return None
+
+    def list_cookie_profiles(self) -> list[Any]:
+        """Return all saved cookie profiles ordered by updated timestamp."""
+        from ..auth.models import CookieProfileRecord
+
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM cookie_profiles ORDER BY updated_at DESC")
+            records: list[CookieProfileRecord] = []
+            for row in cursor.fetchall():
+                records.append(
+                    CookieProfileRecord(
+                        id=row["id"],
+                        domain=row["domain"],
+                        browser_source=row["browser_source"],
+                        cookie_file_path=row["cookie_file_path"],
+                        cookie_count=row["cookie_count"],
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                    )
+                )
+            return records
+
+    def delete_cookie_profile(self, profile_id: str, delete_file: bool = True) -> bool:
+        """Delete a cookie profile and optionally delete its backing file on disk."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT cookie_file_path FROM cookie_profiles WHERE id = ?",
+                (profile_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return False
+
+            file_path = row["cookie_file_path"]
+            if delete_file and file_path:
+                try:
+                    p = Path(file_path)
+                    if p.exists() and p.is_file():
+                        p.unlink(missing_ok=True)
+                except Exception as exc:
+                    logger.warning(f"Could not delete cookie file {file_path}: {exc}")
+
+            conn.execute("DELETE FROM cookie_profiles WHERE id = ?", (profile_id,))
+            return True
+
+    # =========================================================================
+    # Domain Request Headers
+    # =========================================================================
+
+    def save_domain_headers(self, domain: str, headers: dict[str, str]) -> None:
+        """Persist custom HTTP request headers for a specific domain."""
+        from ..auth.headers import extract_domain_from_url
+
+        clean_dom = extract_domain_from_url(domain)
+        headers_json = json.dumps(headers)
+        with get_db_session(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO domain_headers (domain, headers_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(domain) DO UPDATE SET
+                    headers_json = excluded.headers_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (clean_dom, headers_json),
+            )
+
+    def get_domain_headers(self, domain: str) -> dict[str, str]:
+        """Retrieve custom headers for a domain, checking subdomains hierarchically."""
+        from ..auth.headers import extract_domain_from_url
+
+        clean_dom = extract_domain_from_url(domain)
+        parts = clean_dom.split(".")
+        candidates: list[str] = []
+        while parts:
+            candidates.append(".".join(parts))
+            parts.pop(0)
+
+        with get_db_session(self.db_path) as conn:
+            for cand in candidates:
+                cursor = conn.execute(
+                    "SELECT headers_json FROM domain_headers WHERE domain = ?",
+                    (cand,),
+                )
+                row = cursor.fetchone()
+                if row and row["headers_json"]:
+                    try:
+                        return json.loads(row["headers_json"])
+                    except Exception:
+                        pass
+        return {}
+
+    def list_all_domain_headers(self) -> dict[str, dict[str, str]]:
+        """Return all configured domain headers as a dictionary of {domain: headers}."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT domain, headers_json FROM domain_headers ORDER BY domain ASC"
+            )
+            res: dict[str, dict[str, str]] = {}
+            for row in cursor.fetchall():
+                try:
+                    res[row["domain"]] = json.loads(row["headers_json"] or "{}")
+                except Exception:
+                    pass
+            return res
+
+    def delete_domain_headers(self, domain: str) -> bool:
+        """Remove custom headers configured for a domain."""
+        from ..auth.headers import extract_domain_from_url
+
+        clean_dom = extract_domain_from_url(domain)
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM domain_headers WHERE domain = ?",
+                (clean_dom,),
+            )
+            return cursor.rowcount > 0
+
 
 # Default singleton instance bound to default_config.database_path
 default_repository = MediaRepository()
