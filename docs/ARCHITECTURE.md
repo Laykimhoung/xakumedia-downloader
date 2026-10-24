@@ -82,12 +82,36 @@ XakuMedia enforces strict directory segregation:
 - **Image Pipeline:** Defaults to original bit-exact downloads. Optional conversions (PNG, JPG, WebP) and compression presets are performed via Pillow without claiming to restore lost source fidelity.
 
 ### 3.4 Local Storage & Persistence
-- SQLite3 database located in standard OS user data directory via `platformdirs`.
+- SQLite3 database in WAL mode located in standard OS user data directory via `platformdirs`.
 - Tracks:
-  - Application settings (theme, concurrency, default download directory).
-  - Saved sources & scan histories.
-  - Media metadata & thumbnails.
-  - Persistent download queue with restart recovery.
+  - Application settings (`app_preferences`).
+  - Saved sources & scan histories (`saved_sources`, `scan_history`, `scan_history_items`).
+  - Media metadata & thumbnails (`media_items`).
+  - Persistent download queue with restart recovery (`download_tasks`).
+  - Session cookies and custom headers (`cookie_profiles`, `domain_headers`).
+- Detailed documentation: [docs/DATABASE.md](DATABASE.md).
+
+### 3.5 Token-Bucket Bandwidth Throttling
+- Thread-safe token-bucket rate limiter (`BandwidthThrottler` in `downloader/throttler.py`).
+- Global bandwidth quota dynamically divided across all active download threads.
+- Sub-50ms micro-sliced sleep scheduling allows instant pause, resume, and cancellation responsiveness.
+
+### 3.6 Session Credentials & Cookie Management
+- Fault-tolerant Netscape 7-field parser supporting `#HttpOnly_` prefixes.
+- Direct DPAPI decryption for local browser cookie extraction (`Chrome`, `Edge`, `Firefox`, `Brave`, `Opera`, `Vivaldi`).
+- Subdomain-hierarchical request header synthesis (`auth/headers.py`).
+
+### 3.7 Saved Sources & Differential Rescanning
+- Bookmarking engine for public channels, profiles, and feeds (`sources/rescan.py`).
+- Differential detection resolves new delta items in $O(1)$ time by cross-referencing discovered URLs against SQLite.
+
+### 3.8 Task Queue Crash Recovery
+- Automated startup audit (`downloader/recovery.py`) checks SQLite task statuses against on-disk `.part` files.
+- Automatically marks completed files, preserves partial byte counts, cleans up orphaned merge staging, and resumes queue processing.
+
+### 3.9 Standalone Windows Packaging Architecture
+- Automated packaging pipeline (`scripts/package-prepare.mjs`) builds self-contained distributions.
+- Bundles standalone Python 3.12 runtime, pre-installed wheel dependencies, and static FFmpeg/FFprobe binaries into `dist-package/`.
 
 ---
 

@@ -65,27 +65,48 @@ npm run dev:frontend
 
 ---
 
-## 5. Workspace Verification Commands
+## 5. Workspace Verification & Testing Commands
 
 Convenient root scripts allow orchestrating all subsystems from the project root:
 
 ```powershell
-# Typecheck frontend
-npm run typecheck:frontend
+# Run full cross-stack test suite (Desktop smoke + all 140 Python tests)
+npm test
 
-# Build frontend production bundle
-npm run build:frontend
+# Run desktop smoke test (Electron + Python engine IPC handshake)
+npm run test:desktop
 
-# Run Python automated tests
+# Run all 140 Python automated unit & regression tests
 npm run test:python
 
 # Run Python linter (cached inside backend/.ruff_cache)
 npm run lint:python
+
+# Typecheck frontend TypeScript
+npm run typecheck
 ```
 
 ---
 
-## 6. Windows Packaging Commands
+## 6. Database Tooling & Maintenance
+
+```powershell
+# Display table row counts and database file statistics
+node scripts/db-tool.mjs stats
+
+# Compact database (VACUUM & PRAGMA optimize)
+node scripts/db-tool.mjs compact
+
+# Clear completed, cancelled, or failed download tasks
+node scripts/db-tool.mjs clear-tasks
+
+# Export database summary as JSON
+node scripts/db-tool.mjs export-summary
+```
+
+---
+
+## 7. Windows Packaging Commands
 
 ```powershell
 # Prepare all packaging assets, standalone Python runtime, and FFmpeg binaries
