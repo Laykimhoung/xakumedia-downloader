@@ -268,6 +268,38 @@ export interface SupportedBrowsersResult {
   browsers: string[];
 }
 
+export interface SavedSourceRecord {
+  id: string;
+  url: string;
+  title: string;
+  platform?: string | null;
+  category?: string | null;
+  author?: string | null;
+  thumbnail_url?: string | null;
+  tags: string[];
+  last_scanned_at?: string | null;
+  last_item_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IncrementalScanResult {
+  source: SavedSourceRecord;
+  total_found: number;
+  new_items: DiscoveredMediaItem[];
+  existing_items: DiscoveredMediaItem[];
+  new_item_count: number;
+  scanned_at: string;
+}
+
+export interface RescanAllSummary {
+  sources_checked: number;
+  total_items_found: number;
+  total_new_items: number;
+  results: IncrementalScanResult[];
+  errors: Record<string, string>;
+}
+
 export interface ResumeAllDownloadsResult {
   resumed_count: number;
 }
@@ -657,6 +689,36 @@ export interface DesktopApi {
    * Open native file dialog to select a cookie text file (.txt).
    */
   selectCookieFile?: (defaultPath?: string) => Promise<string | null>;
+
+  /**
+   * Save or bookmark a media source (channel, gallery, artist profile).
+   */
+  saveSource?: (source: Partial<SavedSourceRecord> & { url: string; title: string }) => Promise<{ source: SavedSourceRecord }>;
+
+  /**
+   * Retrieve list of saved sources, optionally filtered by tag.
+   */
+  getSavedSources?: (tag?: string) => Promise<{ sources: SavedSourceRecord[]; count: number }>;
+
+  /**
+   * Get a saved source by ID or URL.
+   */
+  getSource?: (params: { source_id?: string; url?: string }) => Promise<{ source: SavedSourceRecord | null }>;
+
+  /**
+   * Delete a saved source from SQLite.
+   */
+  deleteSavedSource?: (sourceId: string) => Promise<{ deleted: boolean; source_id: string }>;
+
+  /**
+   * Perform an incremental rescan of a saved source to discover new items.
+   */
+  rescanSource?: (sourceId: string) => Promise<{ result: IncrementalScanResult }>;
+
+  /**
+   * Perform an incremental rescan across all saved sources.
+   */
+  rescanAllSources?: (tag?: string) => Promise<{ summary: RescanAllSummary }>;
 }
 
 export interface AppPreferences {

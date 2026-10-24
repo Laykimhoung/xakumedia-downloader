@@ -7,7 +7,7 @@ from ..exceptions.base import DatabaseError
 
 logger = get_logger("db.schema")
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 MIGRATION_V1 = """
 -- Schema version tracking
@@ -120,6 +120,28 @@ CREATE TABLE IF NOT EXISTS domain_headers (
 );
 """
 
+MIGRATION_V3 = """
+-- Saved Media Sources (Channels, Galleries, Artist Profiles)
+CREATE TABLE IF NOT EXISTS saved_sources (
+    id TEXT PRIMARY KEY,
+    url TEXT UNIQUE NOT NULL,
+    title TEXT NOT NULL,
+    platform TEXT,
+    category TEXT,
+    author TEXT,
+    thumbnail_url TEXT,
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    last_scanned_at TIMESTAMP,
+    last_item_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_sources_url ON saved_sources(url);
+CREATE INDEX IF NOT EXISTS idx_saved_sources_platform ON saved_sources(platform);
+CREATE INDEX IF NOT EXISTS idx_saved_sources_last_scanned ON saved_sources(last_scanned_at DESC);
+"""
+
 
 def get_current_version(conn: sqlite3.Connection) -> int:
     """Retrieve the current schema version from the database."""
@@ -154,6 +176,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (2)")
             conn.commit()
             logger.info("Database migration V2 applied successfully.")
+
+        if current_v < 3:
+            logger.info("Applying database migration V3...")
+            conn.executescript(MIGRATION_V3)
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)")
+            conn.commit()
+            logger.info("Database migration V3 applied successfully.")
 
         # Self-healing column checks for pre-existing local databases
         cursor = conn.cursor()

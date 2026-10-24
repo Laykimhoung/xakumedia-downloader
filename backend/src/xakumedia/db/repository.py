@@ -1004,6 +1004,156 @@ class MediaRepository:
             )
             return cursor.rowcount > 0
 
+    # =========================================================================
+    # Saved Sources & Incremental Discovery
+    # =========================================================================
+
+    def save_source(self, source: Any) -> Any:
+        """Persist or update a bookmarked media source in the saved_sources table."""
+        now = datetime.now(UTC).isoformat()
+        tags_json = json.dumps(source.tags if hasattr(source, "tags") else [])
+        with get_db_session(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO saved_sources (
+                    id, url, title, platform, category, author, thumbnail_url,
+                    tags_json, last_scanned_at, last_item_count, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    url = excluded.url,
+                    title = excluded.title,
+                    platform = excluded.platform,
+                    category = excluded.category,
+                    author = excluded.author,
+                    thumbnail_url = excluded.thumbnail_url,
+                    tags_json = excluded.tags_json,
+                    last_scanned_at = excluded.last_scanned_at,
+                    last_item_count = excluded.last_item_count,
+                    updated_at = excluded.updated_at
+                ON CONFLICT(url) DO UPDATE SET
+                    title = excluded.title,
+                    platform = excluded.platform,
+                    category = excluded.category,
+                    author = excluded.author,
+                    thumbnail_url = excluded.thumbnail_url,
+                    tags_json = excluded.tags_json,
+                    last_scanned_at = excluded.last_scanned_at,
+                    last_item_count = excluded.last_item_count,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    source.id,
+                    source.url,
+                    source.title,
+                    source.platform,
+                    source.category,
+                    source.author,
+                    source.thumbnail_url,
+                    tags_json,
+                    source.last_scanned_at,
+                    source.last_item_count,
+                    source.created_at or now,
+                    now,
+                ),
+            )
+        return self.get_source(source.id) or source
+
+    def _row_to_saved_source(self, row: Any) -> Any:
+        """Helper to deserialize a sqlite3.Row into a SavedSource model."""
+        from ..models.source import SavedSource
+
+        tags = []
+        if row["tags_json"]:
+            try:
+                tags = json.loads(row["tags_json"])
+            except Exception:
+                tags = []
+
+        return SavedSource(
+            id=row["id"],
+            url=row["url"],
+            title=row["title"],
+            platform=row["platform"],
+            category=row["category"],
+            author=row["author"],
+            thumbnail_url=row["thumbnail_url"],
+            tags=tags,
+            last_scanned_at=row["last_scanned_at"],
+            last_item_count=row["last_item_count"] or 0,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_source(self, source_id: str) -> Any | None:
+        """Retrieve a saved source by its ID."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM saved_sources WHERE id = ?", (source_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_saved_source(row)
+
+    def get_source_by_url(self, url: str) -> Any | None:
+        """Retrieve a saved source by its URL."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM saved_sources WHERE url = ?", (url,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self._row_to_saved_source(row)
+
+    def list_saved_sources(self, tag: str | None = None) -> list[Any]:
+        """List all saved sources, optionally filtered by tag."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("SELECT * FROM saved_sources ORDER BY updated_at DESC")
+            sources = [self._row_to_saved_source(row) for row in cursor.fetchall()]
+            if tag:
+                tag_lower = tag.lower().strip()
+                return [s for s in sources if any(t.lower() == tag_lower for t in s.tags)]
+            return sources
+
+    def delete_saved_source(self, source_id: str) -> bool:
+        """Delete a saved source by ID."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM saved_sources WHERE id = ?", (source_id,))
+            return cursor.rowcount > 0
+
+    def update_source_scan_stats(
+        self, source_id: str, item_count: int, scanned_at: str | None = None
+    ) -> None:
+        """Update last scanned timestamp and item count for a saved source."""
+        now = scanned_at or datetime.now(UTC).isoformat()
+        with get_db_session(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE saved_sources
+                SET last_scanned_at = ?, last_item_count = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (now, item_count, now, source_id),
+            )
+
+    def get_known_item_urls_for_source(self, source_url: str) -> set[str]:
+        """Retrieve set of known item original_url and source_url strings previously recorded."""
+        with get_db_session(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT mi.original_url, mi.source_url
+                FROM media_items mi
+                JOIN scan_history_items shi ON mi.id = shi.media_id
+                JOIN scan_history sh ON shi.scan_id = sh.id
+                WHERE sh.raw_url = ? OR sh.normalized_url = ?
+                """,
+                (source_url, source_url),
+            )
+            urls: set[str] = set()
+            for row in cursor.fetchall():
+                if row["original_url"]:
+                    urls.add(row["original_url"])
+                if row["source_url"]:
+                    urls.add(row["source_url"])
+            return urls
+
 
 # Default singleton instance bound to default_config.database_path
 default_repository = MediaRepository()

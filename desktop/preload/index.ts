@@ -17,6 +17,7 @@ import type {
   ExportMetadataResult,
   FFmpegInfoResult,
   GetDownloadTasksResult,
+  IncrementalScanResult,
   InspectMediaResult,
   MediaFormatInfoPayload,
   MergeStreamsResult,
@@ -28,9 +29,11 @@ import type {
   PythonSystemInfoResult,
   QuerySavedMediaParams,
   RecoverySummary,
+  RescanAllSummary,
   ResumeAllDownloadsResult,
   ResumeDownloadResult,
   SavedMediaResult,
+  SavedSourceRecord,
   ScanHistoryResult,
   SetDownloadConcurrencyResult,
   StartBatchDownloadResult,
@@ -359,6 +362,36 @@ const api: DesktopApi = {
   },
   selectCookieFile: async (defaultPath?: string): Promise<string | null> => {
     return ipcRenderer.invoke("dialog:selectCookieFile", defaultPath);
+  },
+  saveSource: async (
+    source: Partial<SavedSourceRecord> & { url: string; title: string }
+  ): Promise<{ source: SavedSourceRecord }> => {
+    return ipcRenderer.invoke("python:saveSource", source);
+  },
+  getSavedSources: async (
+    tag?: string
+  ): Promise<{ sources: SavedSourceRecord[]; count: number }> => {
+    return ipcRenderer.invoke("python:getSavedSources", tag);
+  },
+  getSource: async (
+    params: { source_id?: string; url?: string }
+  ): Promise<{ source: SavedSourceRecord | null }> => {
+    return ipcRenderer.invoke("python:getSource", params);
+  },
+  deleteSavedSource: async (
+    sourceId: string
+  ): Promise<{ deleted: boolean; source_id: string }> => {
+    return ipcRenderer.invoke("python:deleteSavedSource", sourceId);
+  },
+  rescanSource: async (
+    sourceId: string
+  ): Promise<{ result: IncrementalScanResult }> => {
+    return ipcRenderer.invoke("python:rescanSource", sourceId);
+  },
+  rescanAllSources: async (
+    tag?: string
+  ): Promise<{ summary: RescanAllSummary }> => {
+    return ipcRenderer.invoke("python:rescanAllSources", tag);
   },
 };
 

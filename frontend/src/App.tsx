@@ -56,6 +56,7 @@ import type {
   RecoverySummary,
 } from "../../desktop/shared/types";
 import { SettingsView } from "./components/SettingsView";
+import { SavedSourcesView } from "./components/SavedSourcesView";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("scan");
@@ -71,6 +72,7 @@ export const App: React.FC = () => {
   const [scanResult, setScanResult] = useState<ClassifyUrlResult | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<MediaFormatInfoPayload | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [savedSourceStatus, setSavedSourceStatus] = useState<{ message: string; isError?: boolean } | null>(null);
 
   // SQLite Persistence State (Media Library & Scan History)
   const [savedMediaItems, setSavedMediaItems] = useState<DiscoveredMediaItem[]>([]);
@@ -350,6 +352,44 @@ export const App: React.FC = () => {
       }
     } catch (err) {
       console.error("Failed to toggle bookmark:", err);
+    }
+  };
+
+  const handleSaveCurrentScanAsSource = async () => {
+    if (!window.api?.saveSource || !scanResult) return;
+    try {
+      const url = scanResult.classified_url.normalized_url || urlInput.trim();
+      const title =
+        scanResult.classified_url.title_hint ||
+        scanResult.media_item?.title ||
+        scanResult.media_items?.[0]?.title ||
+        scanResult.classified_url.domain ||
+        "Saved Source";
+      const author =
+        scanResult.classified_url.author_hint ||
+        scanResult.media_item?.author ||
+        scanResult.media_items?.[0]?.author ||
+        undefined;
+      const platform =
+        scanResult.classified_url.platform ||
+        scanResult.classified_url.domain ||
+        undefined;
+
+      const tags = [platform, "bookmarked"].filter(Boolean) as string[];
+
+      await window.api.saveSource({
+        url,
+        title,
+        author,
+        platform,
+        tags,
+      });
+      setSavedSourceStatus({ message: `Source "${title}" saved to Saved Sources!` });
+      setTimeout(() => setSavedSourceStatus(null), 3500);
+    } catch (err) {
+      console.error("Failed to save source:", err);
+      setSavedSourceStatus({ message: `Failed to save source: ${String(err)}`, isError: true });
+      setTimeout(() => setSavedSourceStatus(null), 4000);
     }
   };
 
@@ -974,7 +1014,7 @@ export const App: React.FC = () => {
         <header className="h-14 border-b border-brand-dark flex items-center justify-between px-8 bg-brand-black/30">
           <div className="flex items-center space-x-2">
             <span className="text-xs uppercase tracking-wider text-neutral-400 font-mono">
-              Milestone 12 / Media Preview, Lightbox &amp; Library Polish
+              Milestone 18 / Saved Sources &amp; Incremental Rescan
             </span>
           </div>
           <div className="flex items-center space-x-3">
@@ -1142,6 +1182,34 @@ export const App: React.FC = () => {
                 </div>
               )}
 
+              {/* Saved Source Notification Banner */}
+              {savedSourceStatus && (
+                <div
+                  className={`p-3 rounded-xl border text-xs font-mono flex items-center justify-between transition-all shadow-md ${
+                    savedSourceStatus.isError
+                      ? "bg-red-950/40 border-red-800/60 text-red-200"
+                      : "bg-emerald-950/40 border-emerald-800/60 text-emerald-200"
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    {savedSourceStatus.isError ? (
+                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                    )}
+                    <span>{savedSourceStatus.message}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("saved")}
+                    className="px-2.5 py-1 bg-brand-dark hover:bg-neutral-800 rounded border border-brand-dark text-[11px] text-white flex items-center space-x-1"
+                  >
+                    <span>View Saved Sources</span>
+                    <span>→</span>
+                  </button>
+                </div>
+              )}
+
               {/* Discovered Multi-Item Gallery Card */}
               {scanResult && scanResult.media_items && scanResult.media_items.length > 1 && (
                 <div className="bg-brand-dark/30 border border-brand-dark rounded-xl p-5 shadow-xl space-y-4">
@@ -1160,6 +1228,15 @@ export const App: React.FC = () => {
                       <span className="px-2 py-0.5 rounded bg-brand-dark/80 border border-brand-dark text-xs font-mono text-neutral-300">
                         <span className="text-brand-red font-semibold">{selectedGalleryIds.size}</span> / {scanResult.media_items.length} Selected
                       </span>
+                      <button
+                        type="button"
+                        onClick={handleSaveCurrentScanAsSource}
+                        className="px-2.5 py-1.5 bg-brand-dark/80 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-brand-dark text-xs font-mono font-medium rounded-md flex items-center space-x-1.5 transition-all"
+                        title="Bookmark this gallery source to track uploads and run incremental rescans"
+                      >
+                        <Bookmark className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Bookmark Source</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -1403,6 +1480,15 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="flex items-center space-x-3">
+                      <button
+                        type="button"
+                        onClick={handleSaveCurrentScanAsSource}
+                        className="px-2.5 py-1 rounded text-xs font-mono font-medium flex items-center space-x-1.5 transition-all bg-brand-black/80 hover:bg-neutral-800 text-neutral-300 border border-brand-dark"
+                        title="Bookmark this source URL to track uploads and run incremental rescans"
+                      >
+                        <Bookmark className="h-3.5 w-3.5 text-amber-400" />
+                        <span>Bookmark Source</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleToggleBookmark(scanResult.media_item!)}
@@ -2730,6 +2816,20 @@ export const App: React.FC = () => {
                 );
               })()}
             </div>
+          )}
+
+          {/* TAB 5: SAVED SOURCES & DIFFERENTIAL RESCAN */}
+          {activeTab === "saved" && (
+            <SavedSourcesView
+              onScanUrl={(url) => {
+                setUrlInput(url);
+                setActiveTab("scan");
+              }}
+              onBatchDownload={(items) => {
+                handleStartBatchDownload(items);
+              }}
+              onNavigateToDownloads={() => setActiveTab("downloads")}
+            />
           )}
 
           {/* TAB 6: APPLICATION SETTINGS */}

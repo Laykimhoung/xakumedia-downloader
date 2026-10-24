@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 17 — Session Credentials, Custom Headers & Cookie Import  
-**Overall Status:** Session Credentials, Netscape Cookie Parser, Browser Cookie Extraction & Domain Headers Complete  
+**Active Milestone:** Milestone 18 — Saved Sources, Incremental Rescan & Differential Discovery  
+**Overall Status:** Saved Sources, Incremental Rescan & Differential Discovery Complete  
 
 ---
 
@@ -39,6 +39,7 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 15** | Task Queue Crash Recovery & Interrupted Resumption | **Completed** | Task recovery service (`downloader/recovery.py`); audits SQLite tasks in `downloading`, `merging`, `scanning`, `queued` against disk `.part` files; marks finished files `completed`; updates partial byte counts and transitions to `paused`; cleans up corrupted intermediate merge outputs; auto-resumes tasks when `auto_start_downloads` is enabled; JSON-RPC handler `recover_interrupted_tasks` and dual notification `download:recovery_completed`; Electron startup audit and `python:recoverInterruptedTasks` IPC bridge; React `recoveryBanner` alert and manual "Recover" action; 7 unit tests (97 total passing); 0 ruff errors; frontend typecheck and desktop smoke test passing. |
 | **Milestone 16** | Bandwidth Throttling & Network Speed Limits | **Completed** | Thread-safe token bucket rate limiter (`downloader/throttler.py`) with dynamic slice sleeping (`BandwidthThrottler`); global bandwidth rate limiting across all concurrent stream worker threads in `downloader/stream.py` and `downloader/manager.py`; dynamic live rate adjustment without transfer interruption; persistent `max_download_speed_kbps` in SQLite `app_preferences` and runtime synchronization; JSON-RPC handlers (`set_speed_limit`, `get_speed_limit`); desktop IPC bridge (`setSpeedLimit`, `getSpeedLimit`); React `SettingsView.tsx` with speed presets (Unlimited, 500 KB/s, 1 MB/s, 2 MB/s, 5 MB/s, 10 MB/s, 20 MB/s, 50 MB/s) and custom input; Downloads toolbar quick speed selector; 8 dedicated unit tests (105 total passing in 5.13s); 0 ruff errors; desktop smoke test verified speed limit get/set over IPC. |
 | **Milestone 17** | Session Credentials, Custom Headers & Cookie Import | **Completed** | SQLite schema Migration V2 (`cookie_profiles`, `domain_headers`); dedicated `auth/` module (`models.py`, `cookies.py`, `headers.py`); Netscape cookie format parser & serializer with `#HttpOnly_` prefix handling; automated local browser cookie extraction (`chrome`, `edge`, `firefox`, `brave`, `opera`, `vivaldi`) via `yt-dlp`'s cookiejar engine; subdomain-hierarchical request header matching; seamless injection into `download_stream` (`httpx`), `extract_video` (`yt-dlp`), and `extract_gallery_info` (`gallery-dl`); 9 JSON-RPC handlers; desktop IPC bridge and native `.txt` file selector dialog (`dialog:selectCookieFile`); modern React controls in `SettingsView.tsx`; 9 dedicated unit tests (114 total passing in 6.40s); 0 ruff errors; desktop smoke test verified auth/cookies over IPC. |
+| **Milestone 18** | Saved Sources, Incremental Rescan & Differential Discovery | **Completed** | SQLite schema Migration V3 (`saved_sources` with `url`, `platform`, `last_scanned_at` indexes); Pydantic `SavedSource`, `IncrementalScanResult`, `RescanAllSummary` models; repository CRUD and $O(1)$ known URL set resolution; differential discovery and multi-extractor rescan engine (`sources/rescan.py`); 6 JSON-RPC handlers; desktop IPC bridge (`python:saveSource`, `getSavedSources`, `getSource`, `deleteSavedSource`, `rescanSource`, `rescanAllSources`); modern React `SavedSourcesView.tsx` with search, dynamic tag filters, Add Source modal, Rescan All, source cards, and Incremental Rescan review modal with 1-click batch download of delta items; 1-click Bookmark Source button on scan result cards; 5 dedicated unit tests (119 total passing in 6.83s); 0 ruff errors; frontend typecheck (`tsc --noEmit`) and desktop smoke test passing. |
 
 ---
 
@@ -88,22 +89,54 @@ The system relies on a secure 3-tier desktop architecture:
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
     - Production bundle (`npm run build:frontend`) builds in 7.30s.
     - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Auth/cookies verified over IPC: browsers=6, profiles=0`.
+- **Saved Sources, Incremental Rescan & Differential Discovery (Milestone 18):**
+  - **Database Migration V3 (`db/schema.py`):**
+    - `saved_sources`: `id` (TEXT PRIMARY KEY), `url` (TEXT UNIQUE NOT NULL), `title` (TEXT NOT NULL), `platform` (TEXT), `category` (TEXT), `author` (TEXT), `thumbnail_url` (TEXT), `tags_json` (TEXT DEFAULT '[]'), `last_scanned_at` (TIMESTAMP), `last_item_count` (INTEGER DEFAULT 0), `created_at` (TIMESTAMP), `updated_at` (TIMESTAMP).
+    - Multi-column indexes: `idx_saved_sources_url`, `idx_saved_sources_platform`, `idx_saved_sources_last_scanned`.
+    - Upgraded `CURRENT_SCHEMA_VERSION = 3`.
+  - **Pydantic Domain Models (`models/source.py`):**
+    - `SavedSource`, `IncrementalScanResult`, `RescanAllSummary`.
+  - **Differential Discovery & Rescan Engine (`sources/rescan.py`):**
+    - `scan_source_url`: sequentially probes direct scanner, `gallery-dl`, and `yt-dlp` to enumerate items.
+    - `get_known_item_urls_for_source`: queries `media_items` joined with `scan_history_items` and `scan_history` to build $O(1)$ set of known URLs.
+    - `incremental_rescan_source`: partitions items into `new_items` vs `existing_items`, updates source telemetry, and creates a scan history record.
+    - `rescan_all_sources`: iterates across saved sources, handles individual errors gracefully, and returns aggregated `RescanAllSummary`.
+  - **JSON-RPC Server Handlers (`server/dispatcher.py`):**
+    - `save_source`, `get_saved_sources`, `get_source`, `delete_saved_source`, `rescan_source`, `rescan_all_sources`.
+  - **Desktop IPC Bridge (`desktop/main/index.ts`, `desktop/preload/index.ts`, `desktop/shared/types.ts`):**
+    - Registered 6 IPC handlers (`python:saveSource`, `getSavedSources`, `getSource`, `deleteSavedSource`, `rescanSource`, `rescanAllSources`).
+    - Exposed methods under `window.api`.
+  - **Frontend UI (`frontend/src/components/SavedSourcesView.tsx` & `App.tsx`):**
+    - `SavedSourcesView` component connected to `activeTab === "saved"`.
+    - Real-time search filter and dynamic tag pills.
+    - Source cards with thumbnail, metadata, tags, rescan button, scan tab launcher, and delete confirmation.
+    - "Add Source" modal for manual bookmark creation with custom tags.
+    - "Rescan All" button with telemetry summary banner.
+    - Incremental Rescan modal showing diff overview (`X new items / Y total`), "New Items Only" vs "All Items" tabs, and 1-click "Download All New Items" batch CTA.
+    - 1-click "Bookmark Source" CTA on gallery and single-item scan result cards in `App.tsx` with confirmation notification banner.
+  - **Automated Verification:**
+    - 5 dedicated unit tests in `backend/tests/test_sources.py` (all passing).
+    - 119 total pytest tests passing across 18 test modules in 6.83s.
+    - 0 ruff lint errors (`ruff check backend/`).
+    - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
+    - Production bundle (`npm run build:frontend`) builds in 4.52s.
+    - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Saved sources verified over IPC: count=0`.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Packaging as a standalone Windows installer (.exe / MSI via electron-builder) is scheduled for later milestones.
+- Packaging as a standalone Windows installer (.exe / MSI via electron-builder) is scheduled for Milestone 19.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 18 — Standalone Windows Installer, Packaging & Build Distribution**
+**Next Milestone:** **Milestone 19 — Standalone Windows Installer, Packaging & Build Distribution**
 
 ### Acceptance Criteria:
 1. Configure `electron-builder` for automated Windows x64 desktop packaging.
-2. Bundle the Python runtime or executable with virtual environment dependencies.
+2. Bundle the Python runtime and dependencies into the packaged application distribution.
 3. Package FFmpeg/FFprobe binaries alongside the desktop shell for zero-configuration user installation.
 4. Generate both a Windows NSIS Installer (`.exe`) and a Portable executable.
 5. Provide desktop application icons (`.ico`, `.png`) matching the XAKURAII brand identity.

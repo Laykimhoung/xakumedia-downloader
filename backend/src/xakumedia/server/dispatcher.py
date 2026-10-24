@@ -627,6 +627,91 @@ class RpcDispatcher:
             deleted = repo.delete_domain_headers(str(domain))
             return {"deleted": deleted, "domain": domain}
 
+        def save_source_handler(params: dict[str, Any]) -> dict[str, Any]:
+            import uuid
+
+            from ..db import default_repository
+            from ..models.source import SavedSource
+
+            repo = self.repository or default_repository
+            url = params.get("url")
+            if not url:
+                raise TypeError("Parameter 'url' is required.")
+
+            title = params.get("title") or url
+            source_id = params.get("id") or str(uuid.uuid4())
+            tags = params.get("tags") or []
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+            source = SavedSource(
+                id=source_id,
+                url=str(url).strip(),
+                title=str(title).strip(),
+                platform=params.get("platform"),
+                category=params.get("category"),
+                author=params.get("author"),
+                thumbnail_url=params.get("thumbnail_url"),
+                tags=tags,
+                last_scanned_at=params.get("last_scanned_at"),
+                last_item_count=params.get("last_item_count", 0),
+            )
+            saved = repo.save_source(source)
+            return {"source": saved.model_dump()}
+
+        def get_saved_sources_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            tag = params.get("tag")
+            sources = repo.list_saved_sources(tag=tag)
+            return {"sources": [s.model_dump() for s in sources], "count": len(sources)}
+
+        def get_source_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            source_id = params.get("source_id")
+            url = params.get("url")
+            if source_id:
+                s = repo.get_source(str(source_id))
+            elif url:
+                s = repo.get_source_by_url(str(url))
+            else:
+                raise TypeError("Parameter 'source_id' or 'url' is required.")
+            return {"source": s.model_dump() if s else None}
+
+        def delete_saved_source_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            source_id = params.get("source_id")
+            if not source_id:
+                raise TypeError("Parameter 'source_id' is required.")
+            deleted = repo.delete_saved_source(str(source_id))
+            return {"deleted": deleted, "source_id": source_id}
+
+        def rescan_source_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+            from ..sources.rescan import incremental_rescan_source
+
+            repo = self.repository or default_repository
+            source_id = params.get("source_id")
+            if not source_id:
+                raise TypeError("Parameter 'source_id' is required.")
+
+            result = incremental_rescan_source(str(source_id), repository=repo)
+            return {"result": result.model_dump()}
+
+        def rescan_all_sources_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+            from ..sources.rescan import rescan_all_sources
+
+            repo = self.repository or default_repository
+            tag = params.get("tag")
+            summary = rescan_all_sources(repository=repo, tag=tag)
+            return {"summary": summary.model_dump()}
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -676,4 +761,10 @@ class RpcDispatcher:
         self.register("get_domain_headers", get_domain_headers_handler)
         self.register("set_domain_headers", set_domain_headers_handler)
         self.register("delete_domain_headers", delete_domain_headers_handler)
+        self.register("save_source", save_source_handler)
+        self.register("get_saved_sources", get_saved_sources_handler)
+        self.register("get_source", get_source_handler)
+        self.register("delete_saved_source", delete_saved_source_handler)
+        self.register("rescan_source", rescan_source_handler)
+        self.register("rescan_all_sources", rescan_all_sources_handler)
 

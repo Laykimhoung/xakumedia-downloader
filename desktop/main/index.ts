@@ -412,6 +412,34 @@ function registerIpcHandlers(): void {
       return result.filePaths[0];
     }
   );
+
+  // Saved Sources & Incremental Rescan
+  ipcMain.handle("python:saveSource", async (_event, sourceData: any) => {
+    return pythonBridge.sendRequest("save_source", sourceData);
+  });
+
+  ipcMain.handle("python:getSavedSources", async (_event, tag?: string) => {
+    return pythonBridge.sendRequest("get_saved_sources", tag ? { tag } : {});
+  });
+
+  ipcMain.handle(
+    "python:getSource",
+    async (_event, params: { source_id?: string; url?: string }) => {
+      return pythonBridge.sendRequest("get_source", params);
+    }
+  );
+
+  ipcMain.handle("python:deleteSavedSource", async (_event, sourceId: string) => {
+    return pythonBridge.sendRequest("delete_saved_source", { source_id: sourceId });
+  });
+
+  ipcMain.handle("python:rescanSource", async (_event, sourceId: string) => {
+    return pythonBridge.sendRequest("rescan_source", { source_id: sourceId });
+  });
+
+  ipcMain.handle("python:rescanAllSources", async (_event, tag?: string) => {
+    return pythonBridge.sendRequest("rescan_all_sources", tag ? { tag } : {});
+  });
 }
 
 function createWindow(): void {
@@ -541,6 +569,15 @@ function createWindow(): void {
         }>("list_cookie_profiles");
         console.log(
           `[smoke-test] Auth/cookies verified over IPC: browsers=${browserResponse.browsers.length}, profiles=${cookieProfilesResponse.count}`
+        );
+
+        // Verify Saved Sources and Incremental Rescan over IPC
+        const savedSourcesResponse = await pythonBridge.sendRequest<{
+          sources: unknown[];
+          count: number;
+        }>("get_saved_sources");
+        console.log(
+          `[smoke-test] Saved sources verified over IPC: count=${savedSourcesResponse.count}`
         );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);
