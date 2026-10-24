@@ -1,8 +1,8 @@
 # XakuMedia — Current Project State
 
 **Last Updated:** October 24, 2026  
-**Active Milestone:** Milestone 14 — Application Settings & Preference Management  
-**Overall Status:** Batch Queue Orchestration & Gallery Bulk Downloads Complete  
+**Active Milestone:** Milestone 16 — Bandwidth Throttling & Network Speed Limits  
+**Overall Status:** Task Queue Crash Recovery & Interrupted Download Resumption Complete  
 
 ---
 
@@ -11,9 +11,9 @@
 XakuMedia is a local-first Windows 11 desktop bulk media downloader developed under the XAKURAII identity. It enables users to discover, preview, organize, and download publicly accessible images and videos from direct URLs, galleries, and supported platforms.
 
 The system relies on a secure 3-tier desktop architecture:
-1. **Frontend (Renderer):** React + TypeScript + Vite + Tailwind CSS + Lucide Icons. In-app video/audio player modal, high-resolution image lightbox with zoom/pan/rotate, media library search/filter/sort, gallery selective bulk download toolbar, download queue slot controls, and diagnostics.
-2. **Desktop Shell (Electron Main):** Process isolation, secure context-isolated IPC boundary, privileged `media-loader://` streaming protocol with HTTP 206 Partial Content range support, window lifecycle, and Python engine management.
-3. **Backend Engine (Python 3.12):** URL classification, extraction providers (`yt-dlp`, `gallery-dl`, `httpx`), multi-slot concurrent download manager with HTTP Range resumption, FFmpeg stream merging & media inspection, Pillow & FFmpeg local thumbnail caching, SQLite media library & query engine, safe disk deletion, and metadata export.
+1. **Frontend (Renderer):** React + TypeScript + Vite + Tailwind CSS + Lucide Icons. In-app video/audio player modal, high-resolution image lightbox with zoom/pan/rotate, media library search/filter/sort, gallery selective bulk download toolbar, download queue slot controls, application settings & preference management, and diagnostics.
+2. **Desktop Shell (Electron Main):** Process isolation, secure context-isolated IPC boundary, privileged `media-loader://` streaming protocol with HTTP 206 Partial Content range support, native Windows folder picker dialog (`dialog.showOpenDialog`), window lifecycle, and Python engine management.
+3. **Backend Engine (Python 3.12):** URL classification, extraction providers (`yt-dlp`, `gallery-dl`, `httpx`), multi-slot concurrent download manager with HTTP Range resumption, FFmpeg stream merging & media inspection, Pillow & FFmpeg local thumbnail caching, SQLite media library & query engine, persistent key-value application preferences (`app_preferences`), safe disk deletion, and metadata export.
 
 ---
 
@@ -35,6 +35,9 @@ The system relies on a secure 3-tier desktop architecture:
 | **Milestone 11** | FFmpeg Stream Merging & Format Conversion | **Completed** | Built dynamic binary discovery (`processor/ffmpeg.py`) for FFmpeg/FFprobe; technical media inspection (`inspect_media`); non-re-encoding stream multiplexing (`merge_video_audio`) with AAC fallback for MP4 containers; format conversion (`convert_container`); dual-track download and auto-merge in `DownloadManager` with intermediate cleanup; registered JSON-RPC handlers; desktop IPC bridge (`getFFmpegInfo`, `inspectMedia`, `mergeStreams`, `convertFormat`); React UI status badge, selectable format chips, and purple merging indicators; 70 unit tests passing; smoke test verified FFmpeg detection over IPC. |
 | **Milestone 12** | Media Preview & Library Polish | **Completed** | In-app video and audio player modal supporting local and stream playback; high-resolution image lightbox modal with keyboard navigation (Escape, +/-, 0, R), zoom (25%–400%), and 90° rotation; Media Library real-time search, container dropdown filtering, and 5-way sorting (`newest`, `oldest`, `title`, `size_desc`, `size_asc`); local thumbnail generation and caching via Pillow and FFmpeg (`processor/thumbnail.py`); privileged Chromium `media-loader://` protocol handler with streaming 206 Partial Content range support; media metadata JSON viewer & exporter; safe SQLite and local disk deletion confirmation flow; 77 unit tests passing; desktop smoke test passing. |
 | **Milestone 13** | Batch Queue Orchestration & Gallery Bulk Downloads | **Completed** | Multi-item selective bulk gallery downloading (Select All, Deselect All, Invert, individual checkboxes, and Bulk Download CTA); active slot worker concurrency scheduling (configurable 1–10 simultaneous downloads, default 3); in-memory `seq_tracker` sequential filename anti-collision; chunked HTTP Range resumption (`Range: bytes={existing}-`, 206 Partial Content) with `.part` preservation on pause; batch operations (`pause_all`, `resume_all`, `cancel_all`, `clear_completed`, `set_download_concurrency`, `get_download_queue_state`); real-time notifications (`download:paused`, `download:resumed`, `queue_cleared`); 84 unit tests passing; 0 ruff lint errors; frontend typecheck (`tsc --noEmit`) and desktop smoke test passing. |
+| **Milestone 14** | Application Settings & Preference Management | **Completed** | Persistent SQLite `app_preferences` key-value repository methods (`get_preference`, `set_preference`, `get_all_preferences`, `update_preferences`, `reset_preferences`, `load_saved_preferences`); dynamic `default_config` synchronization and live queue concurrency updates; JSON-RPC handlers (`get_preferences`, `update_preferences`, `reset_preferences`); native Windows folder picker dialog (`dialog:selectFolder` via `dialog.showOpenDialog`); typed desktop IPC bridge (`getPreferences`, `updatePreferences`, `resetPreferences`, `selectFolder`); modern React `SettingsView.tsx` with folder picker, concurrency slider (1–10), network timeout/retries, video/image quality preferences, theme selector (dark/light/system), runtime diagnostics, and factory reset confirmation modal; 6 dedicated unit tests (90 total passing); 0 ruff errors; frontend typecheck passing; desktop smoke test verified preferences over IPC. |
+| **Milestone 15** | Task Queue Crash Recovery & Interrupted Resumption | **Completed** | Task recovery service (`downloader/recovery.py`); audits SQLite tasks in `downloading`, `merging`, `scanning`, `queued` against disk `.part` files; marks finished files `completed`; updates partial byte counts and transitions to `paused`; cleans up corrupted intermediate merge outputs; auto-resumes tasks when `auto_start_downloads` is enabled; JSON-RPC handler `recover_interrupted_tasks` and dual notification `download:recovery_completed`; Electron startup audit and `python:recoverInterruptedTasks` IPC bridge; React `recoveryBanner` alert and manual "Recover" action; 7 unit tests (97 total passing); 0 ruff errors; frontend typecheck and desktop smoke test passing. |
+| **Milestone 16** | Bandwidth Throttling & Network Speed Limits | **Completed** | Thread-safe token bucket rate limiter (`downloader/throttler.py`) with dynamic slice sleeping (`BandwidthThrottler`); global bandwidth rate limiting across all concurrent stream worker threads in `downloader/stream.py` and `downloader/manager.py`; dynamic live rate adjustment without transfer interruption; persistent `max_download_speed_kbps` in SQLite `app_preferences` and runtime synchronization; JSON-RPC handlers (`set_speed_limit`, `get_speed_limit`); desktop IPC bridge (`setSpeedLimit`, `getSpeedLimit`); React `SettingsView.tsx` with speed presets (Unlimited, 500 KB/s, 1 MB/s, 2 MB/s, 5 MB/s, 10 MB/s, 20 MB/s, 50 MB/s) and custom input; Downloads toolbar quick speed selector; 8 dedicated unit tests (105 total passing in 5.13s); 0 ruff errors; desktop smoke test verified speed limit get/set over IPC. |
 
 ---
 
@@ -47,56 +50,59 @@ The system relies on a secure 3-tier desktop architecture:
   - Git: `2.52.0.windows.1`
   - FFmpeg: `n4.4.2-4-g944ee75106-20220916`
   - FFprobe: `n4.4.2-4-g944ee75106-20220916`
-- **Batch Queue Orchestration & Gallery Bulk Downloads (Milestone 13):**
-  - **Selective Gallery Bulk Download UI (`frontend/src/App.tsx`):**
-    - Multi-item gallery results render interactive checkboxes on each discovered item.
-    - Global selection controls: **Select All**, **Deselect All**, and **Invert Selection**.
-    - Selected item count badge (`N / total Selected`) and prominent "Download Selected (N)" CTA button.
-    - Card selection toggle on click with glowing red active border highlight.
-  - **Active Slot Concurrency Scheduling (`downloader/manager.py`):**
-    - Configurable active worker slots (clamped 1–10, default 3).
-    - `_pending_queue` holds waiting tasks with `TaskStatus.QUEUED`.
-    - `_schedule_next()` launches waiting tasks whenever active worker count drops below `max_concurrent`.
-    - Dynamic concurrency adjustment (`set_concurrency`) immediately schedules waiting tasks when capacity increases.
-  - **Sequential Naming Anti-Collision (`downloader/manager.py`):**
-    - Batch submissions across the same author employ an in-memory `seq_tracker` to allocate sequential numbers (`{user}_{type}_{seq:03d}`) without race conditions or overwriting.
-  - **Pause & Resume with Chunked Range Resumption (`downloader/stream.py` & `downloader/manager.py`):**
-    - Active streaming tasks respond immediately to `pause_event.set()` by raising `DownloadPausedError`.
-    - Preserves existing `.part` files on disk without unlinking.
-    - Resuming requests HTTP `Range: bytes={existing_bytes}-`, handles HTTP 206 Partial Content in append mode (`"ab"`), and handles HTTP 416 (file already complete).
-    - Global batch controls: `pause_all()`, `resume_all()`, `cancel_all()`, `clear_completed()`, `get_queue_state()`.
-    - Real-time dual-format notifications: `download:paused`, `download:resumed`, `queue_cleared`.
-  - **Desktop Shell & Preload Contracts (`desktop/shared/types.ts`, `desktop/main/index.ts`, `desktop/preload/index.ts`):**
-    - Typed IPC methods: `startBatchDownload`, `pauseDownload`, `resumeDownload`, `pauseAllDownloads`, `resumeAllDownloads`, `cancelAllDownloads`, `clearCompletedDownloads`, `setDownloadConcurrency`, `getDownloadQueueState`.
-    - Typed listeners: `onDownloadPaused`, `onDownloadResumed`, `onQueueCleared`.
+- **Bandwidth Throttling & Network Speed Limits (Milestone 16):**
+  - **Token Bucket Algorithm (`downloader/throttler.py`):**
+    - `BandwidthThrottler` class managing refill tokens based on elapsed monotonic time.
+    - Capacity dynamically scaled to `max(128KB, rate * 0.5s)` for smooth burst absorption.
+    - Thread-safe mutex lock protecting token math and refill calculations across concurrent workers.
+    - Micro-sliced sleeping (`min(0.05, deficit / rate)`) outside lock to keep transfers responsive to pause and cancellation events (<50ms reaction time).
+    - Unlimited speed bypass: `max_speed_kbps <= 0` immediately returns with 0s overhead.
+  - **Streaming Integration (`downloader/stream.py` & `downloader/manager.py`):**
+    - `download_stream` consumes bytes from throttler on every chunk iteration.
+    - Video track, audio track, and single-stream downloads all share the global `self.throttler`.
+    - Dynamic on-the-fly adjustment: updating limit updates refill rate instantly without restarting active socket streams.
+  - **Database Persistence & Runtime Config Sync (`db/repository.py` & `core/config.py`):**
+    - Persists `max_download_speed_kbps` in SQLite `app_preferences`.
+    - Clamped between 0 and 1,000,000 KB/s (1 GB/s).
+    - Loaded on application startup into `default_config.max_download_speed_kbps` and active `default_throttler`.
+    - Factory reset restores 0 KB/s (unlimited).
+  - **JSON-RPC Handlers (`server/dispatcher.py`):**
+    - `set_speed_limit`: updates global speed limit in KB/s.
+    - `get_speed_limit`: returns active speed limit in KB/s.
+  - **Desktop IPC Bridge & Preload (`desktop/main/index.ts`, `desktop/preload/index.ts`, `desktop/shared/types.ts`):**
+    - `python:setSpeedLimit` and `python:getSpeedLimit` IPC handlers.
+    - Typed `setSpeedLimit` and `getSpeedLimit` on `window.api`.
+  - **Frontend User Controls (`frontend/src/components/SettingsView.tsx` & `frontend/src/App.tsx`):**
+    - Dedicated Speed Limit controls in `SettingsView.tsx` with preset chips and custom KB/s numeric input.
+    - Quick speed limit selector chips in Downloads tab toolbar (`∞`, `500K`, `1M`, `2M`, `5M`, `10M`) with cyan active highlights.
+    - Real-time synchronization between settings changes and toolbar display.
+  - **Developer Tooling (`scripts/run-python-server.mjs`):**
+    - Added `speed [kbps]` CLI command and interactive REPL command.
   - **Automated Verification:**
-    - 7 comprehensive unit tests in `backend/tests/test_batch_queue.py` testing sequential naming, worker throttling, pause & resume with partial files, pause/resume all, cancel all, clear completed, and JSON-RPC dispatching.
-    - 84 total pytest tests passing in 4.43s.
+    - 8 unit tests in `backend/tests/test_throttler.py` (all passing).
+    - 105 total pytest tests passing in 5.13s across 16 test modules.
     - 0 ruff lint errors (`ruff check backend`).
     - Frontend TypeScript check (`npm run typecheck`) cleanly passes with 0 errors.
-    - Production bundle (`npm run build:frontend`) builds successfully.
-    - Desktop Electron smoke test (`npm run test:desktop`) cleanly passes.
+    - Production bundle (`npm run build:frontend`) builds in 2.53s.
+    - Desktop Electron smoke test (`npm run test:desktop`) passes with `[smoke-test] Speed limit verified over IPC: set=512, got=512`.
 
 ---
 
 ## 4. Known Bugs & Current Limitations
 
-- Application settings UI (configuring download directory, custom quality preferences, default concurrency, theme toggling) is scheduled for Milestone 14.
-- Automated update checks and packaging (electron-builder installer) are scheduled for later milestones.
+- Packaging as a standalone Windows installer (.exe / MSI via electron-builder) is scheduled for later milestones.
+- Cookies and authenticated session management for platforms requiring login credentials are scheduled for Milestone 17.
 
 ---
 
 ## 5. Next Milestone & Acceptance Criteria
 
-**Next Milestone:** **Milestone 14 — Application Settings & Preference Management**
+**Next Milestone:** **Milestone 17 — Session Credentials, Custom Headers & Cookie Import**
 
 ### Acceptance Criteria:
-1. Implement persistent configuration service storing user settings in SQLite `app_preferences`.
-2. Provide frontend Settings tab:
-   - Configurable download directories for images and videos with native Windows folder picker dialog (`dialog.showOpenDialog`).
-   - Default concurrency slider / selector (1–10).
-   - Preferred video quality (resolution limits, container preference, audio codec preference).
-   - Preferred image quality/format options.
-3. IPC bridge methods for reading and writing user preferences with backend synchronization.
-4. Comprehensive automated unit and integration tests.
-5. Documentation update in `docs/CURRENT_STATE.md` and personal learning walkthrough in `my-learning/`.
+1. Provide secure local credential and cookie storage for platforms requiring authenticated access.
+2. Support browser cookie importing (e.g. Netscape cookie file format or direct browser extraction via yt-dlp/gallery-dl `--cookies-from-browser`).
+3. Support custom HTTP request headers (User-Agent, Referer, Authorization) per domain in SQLite preferences.
+4. Protect credential storage using local encryption or Windows DPAPI / safe storage primitives without plaintext exposure.
+5. Provide automated unit tests for cookie parsing, header injection, and security validation.
+6. Document authentication architecture and learning notes in `my-learning/`.

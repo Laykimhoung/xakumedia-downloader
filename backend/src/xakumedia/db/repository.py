@@ -7,9 +7,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..core.config import default_config
 from ..core.logging import get_logger
 from ..exceptions.base import DatabaseError
 from ..models.media import MediaFormatInfo, MediaItem, MediaType
+from ..models.quality import ImageFormat, VideoContainer, VideoResolution
 from ..models.queue import DownloadTask, TaskStatus
 from ..models.url import ClassifiedUrl
 from .connection import ensure_database_initialized, get_db_connection, get_db_session
@@ -23,6 +25,7 @@ class MediaRepository:
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = db_path
         ensure_database_initialized(self.db_path)
+        self.load_saved_preferences()
 
     def _row_to_media_item(self, row: sqlite3.Row) -> MediaItem:
         """Transform a SQLite media_items row into a typed MediaItem domain model."""
@@ -448,6 +451,37 @@ class MediaRepository:
                 ),
             )
 
+    def _row_to_download_task(self, row: Any) -> DownloadTask:
+        """Helper to deserialize a sqlite3.Row into a typed DownloadTask model."""
+        media_item = self._row_to_media_item(row)
+        fmt = (
+            MediaFormatInfo.model_validate(json.loads(row["selected_format_json"]))
+            if row["selected_format_json"]
+            else None
+        )
+        return DownloadTask(
+            id=row["task_id"],
+            media_item=media_item,
+            status=TaskStatus(row["status"]),
+            selected_format=fmt,
+            destination_path=Path(row["destination_path"]) if row["destination_path"] else None,
+            temp_path=Path(row["temp_path"]) if row["temp_path"] else None,
+            bytes_downloaded=row["bytes_downloaded"],
+            total_bytes=row["total_bytes"],
+            progress_percent=row["progress_percent"],
+            error_message=row["error_message"],
+            retry_count=row["retry_count"],
+            created_at=datetime.fromisoformat(row["created_at"])
+            if row["created_at"]
+            else datetime.now(UTC),
+            completed_at=datetime.fromisoformat(row["completed_at"])
+            if row["completed_at"]
+            else None,
+            updated_at=datetime.fromisoformat(row["updated_at"])
+            if row["updated_at"]
+            else datetime.now(UTC),
+        )
+
     def get_download_tasks(
         self,
         status: TaskStatus | None = None,
@@ -471,41 +505,28 @@ class MediaRepository:
 
             cursor.execute(query, tuple(params))
             rows = cursor.fetchall()
-            tasks: list[DownloadTask] = []
-            for row in rows:
-                media_item = self._row_to_media_item(row)
-                fmt = (
-                    MediaFormatInfo.model_validate(json.loads(row["selected_format_json"]))
-                    if row["selected_format_json"]
-                    else None
-                )
-                tasks.append(
-                    DownloadTask(
-                        id=row["task_id"],
-                        media_item=media_item,
-                        status=TaskStatus(row["status"]),
-                        selected_format=fmt,
-                        destination_path=Path(row["destination_path"])
-                        if row["destination_path"]
-                        else None,
-                        temp_path=Path(row["temp_path"]) if row["temp_path"] else None,
-                        bytes_downloaded=row["bytes_downloaded"],
-                        total_bytes=row["total_bytes"],
-                        progress_percent=row["progress_percent"],
-                        error_message=row["error_message"],
-                        retry_count=row["retry_count"],
-                        created_at=datetime.fromisoformat(row["created_at"])
-                        if row["created_at"]
-                        else datetime.now(UTC),
-                        completed_at=datetime.fromisoformat(row["completed_at"])
-                        if row["completed_at"]
-                        else None,
-                        updated_at=datetime.fromisoformat(row["updated_at"])
-                        if row["updated_at"]
-                        else datetime.now(UTC),
-                    )
-                )
-            return tasks
+            return [self._row_to_download_task(row) for row in rows]
+        finally:
+            conn.close()
+
+    def get_uncompleted_tasks(self) -> list[DownloadTask]:
+        """Query tasks with active/pending status (downloading, merging, scanning, queued).
+
+        Ordered by created_at ASC to allow FIFO recovery resumption.
+        """
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            query = """
+                SELECT t.*, m.*, t.id AS task_id, m.id AS m_id
+                FROM download_tasks t
+                JOIN media_items m ON t.media_id = m.id
+                WHERE t.status IN ('downloading', 'merging', 'scanning', 'queued')
+                ORDER BY t.created_at ASC
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            return [self._row_to_download_task(row) for row in rows]
         finally:
             conn.close()
 
@@ -524,36 +545,7 @@ class MediaRepository:
             row = cursor.fetchone()
             if not row:
                 return None
-            media_item = self._row_to_media_item(row)
-            fmt = (
-                MediaFormatInfo.model_validate(json.loads(row["selected_format_json"]))
-                if row["selected_format_json"]
-                else None
-            )
-            return DownloadTask(
-                id=row["task_id"],
-                media_item=media_item,
-                status=TaskStatus(row["status"]),
-                selected_format=fmt,
-                destination_path=Path(row["destination_path"])
-                if row["destination_path"]
-                else None,
-                temp_path=Path(row["temp_path"]) if row["temp_path"] else None,
-                bytes_downloaded=row["bytes_downloaded"],
-                total_bytes=row["total_bytes"],
-                progress_percent=row["progress_percent"],
-                error_message=row["error_message"],
-                retry_count=row["retry_count"],
-                created_at=datetime.fromisoformat(row["created_at"])
-                if row["created_at"]
-                else datetime.now(UTC),
-                completed_at=datetime.fromisoformat(row["completed_at"])
-                if row["completed_at"]
-                else None,
-                updated_at=datetime.fromisoformat(row["updated_at"])
-                if row["updated_at"]
-                else datetime.now(UTC),
-            )
+            return self._row_to_download_task(row)
         finally:
             conn.close()
 
@@ -586,6 +578,231 @@ class MediaRepository:
             return counts
         finally:
             conn.close()
+
+    # =========================================================================
+    # Application Preferences Management (SQLite app_preferences table)
+    # =========================================================================
+
+    def get_preference(self, key: str, default: Any = None) -> Any:
+        """Fetch a single preference value by key, decoding JSON if applicable."""
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_preferences WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if not row:
+                return default
+            val = row["value"]
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return val
+        finally:
+            conn.close()
+
+    def set_preference(self, key: str, value: Any) -> None:
+        """Persist a single preference value into SQLite."""
+        val_json = json.dumps(value) if not isinstance(value, str) else json.dumps(value)
+        with get_db_session(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO app_preferences (key, value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (key, val_json),
+            )
+        self._apply_to_runtime_config({key: value})
+
+    def get_all_stored_preferences(self) -> dict[str, Any]:
+        """Fetch all raw key-value preferences stored in SQLite."""
+        conn = get_db_connection(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM app_preferences")
+            rows = cursor.fetchall()
+            result: dict[str, Any] = {}
+            for row in rows:
+                k = row["key"]
+                raw_val = row["value"]
+                try:
+                    result[k] = json.loads(raw_val)
+                except (json.JSONDecodeError, TypeError):
+                    result[k] = raw_val
+            return result
+        finally:
+            conn.close()
+
+    def get_all_preferences(self) -> dict[str, Any]:
+        """Return all application preferences, merging saved overrides with system defaults."""
+        defaults = {
+            "download_dir": str(default_config.download_dir),
+            "image_download_dir": str(default_config.image_download_dir),
+            "video_download_dir": str(default_config.video_download_dir),
+            "max_concurrent_downloads": default_config.max_concurrent_downloads,
+            "max_download_speed_kbps": default_config.max_download_speed_kbps,
+            "max_retries": default_config.max_retries,
+            "request_timeout_seconds": default_config.request_timeout_seconds,
+            "default_video_resolution": default_config.default_video_resolution.value
+            if hasattr(default_config.default_video_resolution, "value")
+            else str(default_config.default_video_resolution),
+            "default_video_container": default_config.default_video_container.value
+            if hasattr(default_config.default_video_container, "value")
+            else str(default_config.default_video_container),
+            "default_image_format": default_config.default_image_format.value
+            if hasattr(default_config.default_image_format, "value")
+            else str(default_config.default_image_format),
+            "theme": default_config.theme,
+            "log_level": default_config.log_level,
+        }
+        stored = self.get_all_stored_preferences()
+        defaults.update(stored)
+        return defaults
+
+    def update_preferences(self, preferences: dict[str, Any]) -> dict[str, Any]:
+        """Validate, persist, and apply updated preferences."""
+        validated: dict[str, Any] = {}
+        for k, v in preferences.items():
+            if k == "download_dir":
+                p = Path(str(v)).expanduser().resolve()
+                validated[k] = str(p)
+            elif k == "max_concurrent_downloads":
+                val = max(1, min(16, int(v)))
+                validated[k] = val
+            elif k == "max_download_speed_kbps":
+                val = max(0, min(1_000_000, int(v)))
+                validated[k] = val
+            elif k == "max_retries":
+                val = max(0, min(10, int(v)))
+                validated[k] = val
+            elif k == "request_timeout_seconds":
+                val = max(5.0, min(300.0, float(v)))
+                validated[k] = val
+            elif k == "default_video_resolution":
+                validated[k] = VideoResolution(str(v)).value
+            elif k == "default_video_container":
+                validated[k] = VideoContainer(str(v)).value
+            elif k == "default_image_format":
+                validated[k] = ImageFormat(str(v)).value
+            elif k == "theme":
+                if str(v) not in ("dark", "light", "system"):
+                    raise ValueError(f"Invalid theme: {v}")
+                validated[k] = str(v)
+            elif k == "log_level":
+                if str(v) not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+                    raise ValueError(f"Invalid log level: {v}")
+                validated[k] = str(v)
+            else:
+                validated[k] = v
+
+        with get_db_session(self.db_path) as conn:
+            for k, val in validated.items():
+                val_json = json.dumps(val)
+                conn.execute(
+                    """
+                    INSERT INTO app_preferences (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (k, val_json),
+                )
+
+        self._apply_to_runtime_config(validated)
+        return self.get_all_preferences()
+
+    def reset_preferences(self) -> dict[str, Any]:
+        """Clear all stored preferences and restore system defaults."""
+        with get_db_session(self.db_path) as conn:
+            conn.execute("DELETE FROM app_preferences")
+
+        from platformdirs import user_downloads_dir
+
+        default_config.download_dir = Path(user_downloads_dir()) / "XakuMedia"
+        default_config.max_concurrent_downloads = 4
+        default_config.max_download_speed_kbps = 0
+        default_config.max_retries = 3
+        default_config.request_timeout_seconds = 30.0
+        default_config.default_video_resolution = VideoResolution.RES_1080P
+        default_config.default_video_container = VideoContainer.MP4
+        default_config.default_image_format = ImageFormat.ORIGINAL
+        default_config.theme = "dark"
+        default_config.log_level = "INFO"
+
+        try:
+            from ..downloader import default_download_manager, default_throttler
+
+            default_download_manager.set_concurrency(default_config.max_concurrent_downloads)
+            default_throttler.set_speed_limit(0)
+        except Exception:
+            pass
+
+        return self.get_all_preferences()
+
+    def load_saved_preferences(self) -> dict[str, Any]:
+        """Load stored preferences from SQLite and apply them to runtime default_config."""
+        try:
+            saved = self.get_all_stored_preferences()
+            self._apply_to_runtime_config(saved)
+            return self.get_all_preferences()
+        except Exception as exc:
+            logger.warning(f"Could not load saved preferences from database: {exc}")
+            return self.get_all_preferences()
+
+    def _apply_to_runtime_config(self, preferences: dict[str, Any]) -> None:
+        """Apply preference values to the runtime default_config and download manager."""
+        if "download_dir" in preferences:
+            default_config.download_dir = Path(str(preferences["download_dir"]))
+        if "max_concurrent_downloads" in preferences:
+            concurrency = int(preferences["max_concurrent_downloads"])
+            default_config.max_concurrent_downloads = concurrency
+            try:
+                from ..downloader import default_download_manager
+
+                default_download_manager.set_concurrency(concurrency)
+            except Exception:
+                pass
+        if "max_download_speed_kbps" in preferences:
+            speed_limit = int(preferences["max_download_speed_kbps"])
+            default_config.max_download_speed_kbps = speed_limit
+            try:
+                from ..downloader import default_throttler
+
+                default_throttler.set_speed_limit(speed_limit)
+            except Exception:
+                pass
+        if "max_retries" in preferences:
+            default_config.max_retries = int(preferences["max_retries"])
+        if "request_timeout_seconds" in preferences:
+            default_config.request_timeout_seconds = float(preferences["request_timeout_seconds"])
+        if "default_video_resolution" in preferences:
+            try:
+                default_config.default_video_resolution = VideoResolution(
+                    str(preferences["default_video_resolution"])
+                )
+            except ValueError:
+                pass
+        if "default_video_container" in preferences:
+            try:
+                default_config.default_video_container = VideoContainer(
+                    str(preferences["default_video_container"])
+                )
+            except ValueError:
+                pass
+        if "default_image_format" in preferences:
+            try:
+                default_config.default_image_format = ImageFormat(
+                    str(preferences["default_image_format"])
+                )
+            except ValueError:
+                pass
+        if "theme" in preferences:
+            default_config.theme = str(preferences["theme"])
+        if "log_level" in preferences:
+            default_config.log_level = str(preferences["log_level"])
 
 
 # Default singleton instance bound to default_config.database_path

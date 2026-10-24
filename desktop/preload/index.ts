@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AppPreferences,
   BatchDownloadItemParam,
   CancelAllDownloadsResult,
   CancelDownloadResult,
@@ -25,6 +26,7 @@ import type {
   PythonPingResult,
   PythonSystemInfoResult,
   QuerySavedMediaParams,
+  RecoverySummary,
   ResumeAllDownloadsResult,
   ResumeDownloadResult,
   SavedMediaResult,
@@ -162,6 +164,14 @@ const api: DesktopApi = {
   ): Promise<SetDownloadConcurrencyResult> => {
     return ipcRenderer.invoke("python:setDownloadConcurrency", concurrency);
   },
+  setSpeedLimit: async (
+    speedLimitKbps: number
+  ): Promise<{ speed_limit_kbps: number }> => {
+    return ipcRenderer.invoke("python:setSpeedLimit", speedLimitKbps);
+  },
+  getSpeedLimit: async (): Promise<{ speed_limit_kbps: number }> => {
+    return ipcRenderer.invoke("python:getSpeedLimit");
+  },
   getDownloadQueueState: async (): Promise<DownloadQueueStateResult> => {
     return ipcRenderer.invoke("python:getDownloadQueueState");
   },
@@ -199,6 +209,21 @@ const api: DesktopApi = {
     ipcRenderer.on("queue_cleared", handler);
     return () => {
       ipcRenderer.removeListener("queue_cleared", handler);
+    };
+  },
+  recoverInterruptedTasks: async (autoResume?: boolean): Promise<RecoverySummary> => {
+    return ipcRenderer.invoke("python:recoverInterruptedTasks", autoResume);
+  },
+  onRecoveryCompleted: (
+    callback: (summary: RecoverySummary) => void
+  ): (() => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      summary: RecoverySummary
+    ) => callback(summary);
+    ipcRenderer.on("download:recovery_completed", handler);
+    return () => {
+      ipcRenderer.removeListener("download:recovery_completed", handler);
     };
   },
   openPath: async (targetPath: string): Promise<void> => {
@@ -268,6 +293,18 @@ const api: DesktopApi = {
     if (!localPath) return "";
     const normalized = localPath.replace(/\\/g, "/");
     return `media-loader://local/${normalized.startsWith("/") ? normalized.slice(1) : normalized}`;
+  },
+  getPreferences: async (): Promise<AppPreferences> => {
+    return ipcRenderer.invoke("preferences:get");
+  },
+  updatePreferences: async (preferences: Partial<AppPreferences>): Promise<AppPreferences> => {
+    return ipcRenderer.invoke("preferences:update", preferences);
+  },
+  resetPreferences: async (): Promise<AppPreferences> => {
+    return ipcRenderer.invoke("preferences:reset");
+  },
+  selectFolder: async (defaultPath?: string): Promise<string | null> => {
+    return ipcRenderer.invoke("dialog:selectFolder", defaultPath);
   },
 };
 

@@ -364,10 +364,37 @@ class RpcDispatcher:
             actual = default_download_manager.set_concurrency(int(concurrency))
             return {"max_concurrent": actual}
 
+        def set_speed_limit_handler(params: dict[str, Any]) -> dict[str, Any]:
+            speed = params.get("speed_limit_kbps")
+            if speed is None:
+                speed = params.get("max_speed_kbps")
+            if speed is None:
+                raise TypeError("Parameter 'speed_limit_kbps' is required.")
+
+            from ..downloader import default_download_manager
+
+            actual = default_download_manager.set_speed_limit(int(speed))
+            return {"speed_limit_kbps": actual}
+
+        def get_speed_limit_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..downloader import default_download_manager
+
+            actual = default_download_manager.get_speed_limit()
+            return {"speed_limit_kbps": actual}
+
         def get_download_queue_state_handler(params: dict[str, Any]) -> dict[str, Any]:
             from ..downloader import default_download_manager
 
             return default_download_manager.get_queue_state()
+
+        def recover_interrupted_tasks_handler(params: dict[str, Any]) -> dict[str, Any]:
+            auto_resume = params.get("auto_resume")
+            if auto_resume is not None:
+                auto_resume = bool(auto_resume)
+
+            from ..downloader import default_download_manager
+
+            return default_download_manager.recover_interrupted_tasks(auto_resume=auto_resume)
 
         # FFmpeg & Media Processing RPC Handlers
         def get_ffmpeg_info_handler(params: dict[str, Any]) -> dict[str, Any]:
@@ -479,6 +506,27 @@ class RpcDispatcher:
             delete_disk = bool(params.get("delete_file_from_disk", True))
             return repo.delete_downloaded_media(task_id, delete_file_from_disk=delete_disk)
 
+        def get_preferences_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            return repo.get_all_preferences()
+
+        def update_preferences_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            preferences = params.get("preferences")
+            if not isinstance(preferences, dict):
+                preferences = {k: v for k, v in params.items() if k != "preferences"}
+            return repo.update_preferences(preferences)
+
+        def reset_preferences_handler(params: dict[str, Any]) -> dict[str, Any]:
+            from ..db import default_repository
+
+            repo = self.repository or default_repository
+            return repo.reset_preferences()
+
         self.register("ping", ping_handler)
         self.register("get_version", version_handler)
         self.register("get_system_info", system_info_handler)
@@ -507,10 +555,16 @@ class RpcDispatcher:
         self.register("cancel_all_downloads", cancel_all_downloads_handler)
         self.register("clear_completed_downloads", clear_completed_downloads_handler)
         self.register("set_download_concurrency", set_download_concurrency_handler)
+        self.register("set_speed_limit", set_speed_limit_handler)
+        self.register("get_speed_limit", get_speed_limit_handler)
         self.register("get_download_queue_state", get_download_queue_state_handler)
+        self.register("recover_interrupted_tasks", recover_interrupted_tasks_handler)
         self.register("get_ffmpeg_info", get_ffmpeg_info_handler)
         self.register("inspect_media", inspect_media_handler)
         self.register("merge_streams", merge_streams_handler)
         self.register("convert_format", convert_format_handler)
         self.register("generate_thumbnail", generate_thumbnail_handler)
+        self.register("get_preferences", get_preferences_handler)
+        self.register("update_preferences", update_preferences_handler)
+        self.register("reset_preferences", reset_preferences_handler)
 

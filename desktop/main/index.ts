@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from "electron";
 import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import type {
+  AppPreferences,
   DiscoveredMediaItem,
   MediaFormatInfoPayload,
   QuerySavedMediaParams,
@@ -200,8 +201,22 @@ function registerIpcHandlers(): void {
     return pythonBridge.sendRequest("set_download_concurrency", { concurrency });
   });
 
+  ipcMain.handle("python:setSpeedLimit", async (_event, speedLimitKbps: number) => {
+    return pythonBridge.sendRequest("set_speed_limit", { speed_limit_kbps: speedLimitKbps });
+  });
+
+  ipcMain.handle("python:getSpeedLimit", async () => {
+    return pythonBridge.sendRequest("get_speed_limit");
+  });
+
   ipcMain.handle("python:getDownloadQueueState", async () => {
     return pythonBridge.sendRequest("get_download_queue_state");
+  });
+
+  ipcMain.handle("python:recoverInterruptedTasks", async (_event, autoResume?: boolean) => {
+    return pythonBridge.sendRequest("recover_interrupted_tasks", {
+      auto_resume: autoResume,
+    });
   });
 
   // Media Processor & FFmpeg IPC Handlers
@@ -302,6 +317,32 @@ function registerIpcHandlers(): void {
       console.warn(`[desktop] Failed to open path ${targetPath}:`, err);
     }
   });
+
+  // Application Preferences & Native Folder Selector
+  ipcMain.handle("dialog:selectFolder", async (_event, defaultPath?: string): Promise<string | null> => {
+    const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+    const result = await dialog.showOpenDialog(focusedWindow || (undefined as any), {
+      title: "Select Download Directory",
+      defaultPath: defaultPath || undefined,
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle("preferences:get", async () => {
+    return pythonBridge.sendRequest("get_preferences");
+  });
+
+  ipcMain.handle("preferences:update", async (_event, preferences: Partial<AppPreferences>) => {
+    return pythonBridge.sendRequest("update_preferences", { preferences });
+  });
+
+  ipcMain.handle("preferences:reset", async () => {
+    return pythonBridge.sendRequest("reset_preferences");
+  });
 }
 
 function createWindow(): void {
@@ -392,6 +433,34 @@ function createWindow(): void {
         console.log(
           `[smoke-test] FFmpeg detection verified over IPC: installed=${ffmpegResponse.installed}, version=${ffmpegResponse.version}`
         );
+
+        // Verify preferences over IPC
+        const prefsResponse = await pythonBridge.sendRequest<AppPreferences>("get_preferences");
+        console.log(
+          `[smoke-test] Preferences query verified over IPC: theme=${prefsResponse.theme}, max_concurrent=${prefsResponse.max_concurrent_downloads}`
+        );
+
+        // Verify task recovery over IPC
+        const recoveryResponse = await pythonBridge.sendRequest<{
+          recovered_count: number;
+          resumed_count: number;
+          message: string;
+        }>("recover_interrupted_tasks", { auto_resume: false });
+        console.log(
+          `[smoke-test] Task recovery verified over IPC: recovered=${recoveryResponse.recovered_count}`
+        );
+
+        // Verify speed limit controls over IPC
+        const speedSetResponse = await pythonBridge.sendRequest<{
+          speed_limit_kbps: number;
+        }>("set_speed_limit", { speed_limit_kbps: 512 });
+        const speedGetResponse = await pythonBridge.sendRequest<{
+          speed_limit_kbps: number;
+        }>("get_speed_limit");
+        await pythonBridge.sendRequest("set_speed_limit", { speed_limit_kbps: 0 });
+        console.log(
+          `[smoke-test] Speed limit verified over IPC: set=${speedSetResponse.speed_limit_kbps}, got=${speedGetResponse.speed_limit_kbps}`
+        );
       } catch (err) {
         console.error("[smoke-test] FAILED: Python ping request failed:", err);
         process.exit(1);
@@ -470,6 +539,15 @@ app.whenReady().then(async () => {
 
   try {
     await pythonBridge.start();
+    try {
+      const rec = await pythonBridge.sendRequest<any>("recover_interrupted_tasks", {});
+      console.log(
+        `[desktop] Interrupted task recovery check: ${rec.recovered_count} recovered, ` +
+          `${rec.resumed_count} resumed, ${rec.paused_count} paused.`
+      );
+    } catch (recErr) {
+      console.warn("[desktop] Interrupted task recovery startup check failed:", recErr);
+    }
   } catch (err) {
     console.error("[desktop] Failed to start Python bridge:", err);
   }

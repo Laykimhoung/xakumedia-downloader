@@ -24,6 +24,7 @@ from ..exceptions.base import (
 from ..models.queue import ProgressUpdate, TaskStatus
 from ..utils.paths import validate_destination_path
 from ..utils.security import validate_url_security
+from .throttler import BandwidthThrottler
 
 logger = get_logger("downloader.stream")
 
@@ -41,6 +42,7 @@ def download_stream(
     headers: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
     allowed_root: Path | None = None,
+    throttler: BandwidthThrottler | None = None,
 ) -> Path:
     """Download a remote media stream to disk with .part staging, atomic rename, and telemetry.
 
@@ -50,8 +52,29 @@ def download_stream(
     validate_url_security(url)
     validate_destination_path(destination_path, allowed_root or default_config.download_dir)
 
-    # 2. Prepare staging file
+    # 2. Check if destination already exists and is non-empty
     destination_path.parent.mkdir(parents=True, exist_ok=True)
+    if destination_path.exists() and destination_path.stat().st_size > 0:
+        file_size = destination_path.stat().st_size
+        logger.info(
+            f"Destination file already exists ({file_size} bytes): "
+            f"{destination_path.name}"
+        )
+        if progress_callback:
+            progress_callback(
+                ProgressUpdate(
+                    task_id=task_id,
+                    status=TaskStatus.DOWNLOADING,
+                    bytes_downloaded=file_size,
+                    total_bytes=file_size,
+                    progress_percent=100.0,
+                    speed_bytes_sec=0.0,
+                    detail_message="Using existing completed file",
+                )
+            )
+        return destination_path
+
+    # 3. Prepare staging file
     temp_path = destination_path.with_suffix(destination_path.suffix + ".part")
 
     existing_bytes = 0
@@ -123,6 +146,17 @@ def download_stream(
 
                         if not chunk:
                             continue
+
+                        if throttler:
+                            throttler.consume(
+                                len(chunk),
+                                cancel_event=cancel_event,
+                                pause_event=pause_event,
+                            )
+                            if cancel_event and cancel_event.is_set():
+                                raise DownloadCancelledError("Download cancelled by user")
+                            if pause_event and pause_event.is_set():
+                                raise DownloadPausedError("Download paused by user")
 
                         f.write(chunk)
                         bytes_downloaded += len(chunk)

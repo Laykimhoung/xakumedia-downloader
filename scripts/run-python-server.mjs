@@ -284,6 +284,28 @@ async function runOneShot(server, command, args) {
       method = "get_saved_media";
       params = { limit: args[0] ? parseInt(args[0], 10) : 10 };
       break;
+    case "prefs":
+    case "preferences":
+      method = "get_preferences";
+      break;
+    case "recover":
+      method = "recover_interrupted_tasks";
+      params = { auto_resume: false };
+      break;
+    case "recover-resume":
+      method = "recover_interrupted_tasks";
+      params = { auto_resume: true };
+      break;
+    case "speed":
+    case "speed-limit":
+      if (args[0] !== undefined) {
+        method = "set_speed_limit";
+        params = { speed_limit_kbps: parseInt(args[0], 10) || 0 };
+      } else {
+        method = "get_speed_limit";
+        params = {};
+      }
+      break;
     case "classify": {
       const url = args[0];
       if (!url) {
@@ -436,6 +458,30 @@ ${colors.cyan}╔═════════════════════
         break;
       }
 
+      case "prefs":
+      case "preferences":
+        await executeRpc(server, "get_preferences", {});
+        break;
+
+      case "recover":
+        await executeRpc(server, "recover_interrupted_tasks", { auto_resume: false });
+        break;
+
+      case "recover-resume":
+        await executeRpc(server, "recover_interrupted_tasks", { auto_resume: true });
+        break;
+
+      case "speed":
+      case "speed-limit": {
+        const val = args.trim();
+        if (val) {
+          await executeRpc(server, "set_speed_limit", { speed_limit_kbps: parseInt(val, 10) || 0 });
+        } else {
+          await executeRpc(server, "get_speed_limit", {});
+        }
+        break;
+      }
+
       case "classify": {
         if (!args.trim()) {
           console.log(`${colors.yellow}Usage: classify <url>${colors.reset}`);
@@ -552,6 +598,7 @@ ${colors.bold}Commands:${colors.reset}
   tasks [status]        List download tasks (queued, downloading, completed, etc.)
   history [limit]       Display scan history items from SQLite
   saved [limit]         Display saved media items from SQLite
+  speed [kbps]          Get or set global download speed limit (0 = unlimited)
   classify <url>        Classify URL through extractors and return metadata
   call <method> [json]  Execute arbitrary JSON-RPC method with parameters
   --raw, --stdio        Pass stdio directly to the Python process (pipe mode)

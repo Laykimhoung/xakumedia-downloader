@@ -33,16 +33,33 @@ def _broadcast(name: str, payload: dict[str, Any]) -> None:
 class DownloadManager:
     """Orchestrates background download execution, progress broadcasting, and queue state."""
 
-    def __init__(self, max_concurrent: int | None = None) -> None:
+    def __init__(
+        self,
+        max_concurrent: int | None = None,
+        repository: Any = None,
+        throttler: Any = None,
+    ) -> None:
         self.max_concurrent = max(
             1, min(10, max_concurrent or default_config.max_concurrent_downloads)
         )
+        self.repository = repository or default_repository
+        from .throttler import default_throttler
+
+        self.throttler = throttler or default_throttler
         self._executor = ThreadPoolExecutor(max_workers=30, thread_name_prefix="xaku-worker")
         self._lock = threading.Lock()
         self._cancel_events: dict[str, threading.Event] = {}
         self._pause_events: dict[str, threading.Event] = {}
         self._active_tasks: dict[str, DownloadTask] = {}
         self._pending_queue: list[tuple[DownloadTask, str]] = []
+
+    def set_speed_limit(self, kbps: int) -> int:
+        """Update maximum bandwidth limit in KB/s (0 = unlimited)."""
+        return self.throttler.set_speed_limit(kbps)
+
+    def get_speed_limit(self) -> int:
+        """Return the current bandwidth limit in KB/s (0 = unlimited)."""
+        return self.throttler.get_speed_limit()
 
     def set_concurrency(self, concurrency: int) -> int:
         """Update maximum concurrent active download workers (clamped between 1 and 10)."""
@@ -126,7 +143,7 @@ class DownloadManager:
         )
 
         # Persist task in SQLite
-        default_repository.save_download_task(task)
+        self.repository.save_download_task(task)
 
         # Enqueue task and attempt scheduling
         self._enqueue(task, url)
@@ -234,7 +251,7 @@ class DownloadManager:
                 destination_path=dest,
                 temp_path=temp_path,
             )
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
             created_tasks.append(task)
             pending_items.append((task, url))
 
@@ -258,15 +275,15 @@ class DownloadManager:
                 if task.id == task_id:
                     self._pending_queue.pop(i)
                     task.status = TaskStatus.CANCELLED
-                    default_repository.save_download_task(task)
+                    self.repository.save_download_task(task)
                     _broadcast("cancelled", {"task_id": task_id})
                     logger.info(f"Cancelled pending task {task_id}")
                     return True
 
-        task = default_repository.get_download_task(task_id)
+        task = self.repository.get_download_task(task_id)
         if task and not task.status.is_terminal:
             task.status = TaskStatus.CANCELLED
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
             _broadcast("cancelled", {"task_id": task_id})
             return True
         return False
@@ -284,7 +301,7 @@ class DownloadManager:
                 if task.id == task_id:
                     self._pending_queue.pop(i)
                     task.status = TaskStatus.PAUSED
-                    default_repository.save_download_task(task)
+                    self.repository.save_download_task(task)
                     _broadcast(
                         "paused",
                         {"task_id": task_id, "task": task.model_dump(mode="json")},
@@ -292,10 +309,10 @@ class DownloadManager:
                     logger.info(f"Paused pending task {task_id}")
                     return True
 
-        task = default_repository.get_download_task(task_id)
+        task = self.repository.get_download_task(task_id)
         if task and task.status in (TaskStatus.QUEUED, TaskStatus.DOWNLOADING):
             task.status = TaskStatus.PAUSED
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
             _broadcast(
                 "paused",
                 {"task_id": task_id, "task": task.model_dump(mode="json")},
@@ -312,12 +329,12 @@ class DownloadManager:
             ):
                 return True
 
-        task = default_repository.get_download_task(task_id)
+        task = self.repository.get_download_task(task_id)
         if not task or task.status not in (TaskStatus.PAUSED, TaskStatus.QUEUED):
             return False
 
         task.status = TaskStatus.QUEUED
-        default_repository.save_download_task(task)
+        self.repository.save_download_task(task)
 
         url = (
             task.selected_format.url
@@ -342,7 +359,7 @@ class DownloadManager:
 
             for task, _ in self._pending_queue:
                 task.status = TaskStatus.PAUSED
-                default_repository.save_download_task(task)
+                self.repository.save_download_task(task)
                 _broadcast(
                     "paused",
                     {"task_id": task.id, "task": task.model_dump(mode="json")},
@@ -355,7 +372,7 @@ class DownloadManager:
 
     def resume_all(self) -> int:
         """Resume all paused download tasks in the database."""
-        paused_tasks = default_repository.get_download_tasks(
+        paused_tasks = self.repository.get_download_tasks(
             status=TaskStatus.PAUSED, limit=200
         )
         resumed_count = 0
@@ -375,7 +392,7 @@ class DownloadManager:
 
             for task, _ in self._pending_queue:
                 task.status = TaskStatus.CANCELLED
-                default_repository.save_download_task(task)
+                self.repository.save_download_task(task)
                 _broadcast("cancelled", {"task_id": task.id})
                 count += 1
             self._pending_queue.clear()
@@ -385,7 +402,7 @@ class DownloadManager:
 
     def clear_completed(self) -> int:
         """Remove completed, failed, and cancelled tasks from database."""
-        deleted = default_repository.clear_completed_tasks()
+        deleted = self.repository.clear_completed_tasks()
         _broadcast("queue_cleared", {"cleared_count": deleted})
         return deleted
 
@@ -399,14 +416,24 @@ class DownloadManager:
             "max_concurrent": self.max_concurrent,
             "active_count": active_count,
             "pending_count": pending_count,
-            "counts": default_repository.get_queue_counts(),
+            "counts": self.repository.get_queue_counts(),
         }
 
     def get_tasks(
         self, status: TaskStatus | None = None, limit: int = 50
     ) -> list[DownloadTask]:
         """Query download tasks from the database."""
-        return default_repository.get_download_tasks(status=status, limit=limit)
+        return self.repository.get_download_tasks(status=status, limit=limit)
+
+    def recover_interrupted_tasks(
+        self, auto_resume: bool | None = None
+    ) -> dict[str, Any]:
+        """Audit and recover uncompleted or crashed download tasks."""
+        from .recovery import TaskRecoveryService
+
+        service = TaskRecoveryService(manager=self)
+        summary = service.recover_interrupted_tasks(auto_resume=auto_resume)
+        return summary.to_dict()
 
     def _run_task(
         self,
@@ -417,7 +444,7 @@ class DownloadManager:
     ) -> None:
         """Worker thread executing the stream download and optional FFmpeg stream merge."""
         task.status = TaskStatus.DOWNLOADING
-        default_repository.save_download_task(task)
+        self.repository.save_download_task(task)
 
         # Broadcast download started
         _broadcast("started", {"task": task.model_dump(mode="json")})
@@ -436,7 +463,7 @@ class DownloadManager:
 
             now = time.monotonic()
             if now - last_db_persist >= 1.0:
-                default_repository.save_download_task(task)
+                self.repository.save_download_task(task)
                 last_db_persist = now
 
         requires_merge = bool(
@@ -494,6 +521,7 @@ class DownloadManager:
                     progress_callback=video_progress,
                     cancel_event=cancel_event,
                     pause_event=pause_event,
+                    throttler=self.throttler,
                 )
 
                 # 2. Download audio track
@@ -516,12 +544,13 @@ class DownloadManager:
                     progress_callback=audio_progress,
                     cancel_event=cancel_event,
                     pause_event=pause_event,
+                    throttler=self.throttler,
                 )
 
                 # 3. Transition to MERGING state
                 task.status = TaskStatus.MERGING
                 task.progress_percent = 96.0
-                default_repository.save_download_task(task)
+                self.repository.save_download_task(task)
                 _broadcast(
                     "progress",
                     ProgressUpdate(
@@ -564,16 +593,17 @@ class DownloadManager:
                     progress_callback=progress_callback,
                     cancel_event=cancel_event,
                     pause_event=pause_event,
+                    throttler=self.throttler,
                 )
 
             task.mark_completed(final_path)
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
             logger.info(f"Task {task.id} completed successfully: {final_path}")
             _broadcast("completed", {"task": task.model_dump(mode="json")})
 
         except DownloadPausedError:
             task.status = TaskStatus.PAUSED
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
             logger.info(f"Task {task.id} paused by user.")
             _broadcast(
                 "paused",
@@ -594,7 +624,7 @@ class DownloadManager:
                 task.mark_failed(str(exc))
                 logger.error(f"Task {task.id} failed: {exc}")
                 _broadcast("failed", {"task_id": task.id, "error": str(exc)})
-            default_repository.save_download_task(task)
+            self.repository.save_download_task(task)
         finally:
             with self._lock:
                 self._cancel_events.pop(task.id, None)

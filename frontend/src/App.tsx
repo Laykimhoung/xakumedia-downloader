@@ -38,6 +38,7 @@ import {
   CheckSquare,
   Square,
   SlidersHorizontal,
+  Gauge,
 } from "lucide-react";
 import type {
   ClassifyUrlResult,
@@ -52,7 +53,9 @@ import type {
   ScanHistoryRecord,
   SystemInfo,
   ExportMetadataResult,
+  RecoverySummary,
 } from "../../desktop/shared/types";
+import { SettingsView } from "./components/SettingsView";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>("scan");
@@ -142,9 +145,12 @@ export const App: React.FC = () => {
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [activeTaskCount, setActiveTaskCount] = useState<number>(0);
   const [concurrency, setConcurrency] = useState<number>(3);
+  const [speedLimitKbps, setSpeedLimitKbps] = useState<number>(0);
   const [queueState, setQueueState] = useState<DownloadQueueStateResult | null>(null);
   const [batchDownloading, setBatchDownloading] = useState<boolean>(false);
   const [selectedGalleryIds, setSelectedGalleryIds] = useState<Set<string>>(new Set());
+  const [recoveryBanner, setRecoveryBanner] = useState<RecoverySummary | null>(null);
+  const [isRecovering, setIsRecovering] = useState<boolean>(false);
 
   const formatBytes = (bytes?: number | null): string => {
     if (!bytes) return "Unknown size";
@@ -552,6 +558,21 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRecoverTasks = async (autoResume: boolean = true) => {
+    if (!window.api?.recoverInterruptedTasks) return;
+    setIsRecovering(true);
+    try {
+      const summary = await window.api.recoverInterruptedTasks(autoResume);
+      setRecoveryBanner(summary);
+      await fetchDownloadTasks();
+      await fetchQueueState();
+    } catch (err) {
+      console.error("Failed to recover tasks:", err);
+    } finally {
+      setIsRecovering(false);
+    }
+  };
+
   const handleCancelAll = async () => {
     if (!window.api?.cancelAllDownloads) return;
     try {
@@ -589,6 +610,16 @@ export const App: React.FC = () => {
       fetchQueueState();
     } catch (err) {
       console.error("Failed to set concurrency:", err);
+    }
+  };
+
+  const handleSetSpeedLimit = async (newVal: number) => {
+    if (!window.api?.setSpeedLimit) return;
+    try {
+      const res = await window.api.setSpeedLimit(newVal);
+      setSpeedLimitKbps(res.speed_limit_kbps);
+    } catch (err) {
+      console.error("Failed to set speed limit:", err);
     }
   };
 
@@ -657,6 +688,16 @@ export const App: React.FC = () => {
               setDownloadTasks(dls.tasks || []);
             } catch (err) {
               console.warn("Could not load initial download tasks:", err);
+            }
+          }
+
+          // Initialize speed limit
+          if (window.api.getSpeedLimit) {
+            try {
+              const sp = await window.api.getSpeedLimit();
+              setSpeedLimitKbps(sp.speed_limit_kbps);
+            } catch (err) {
+              console.warn("Could not load initial speed limit:", err);
             }
           }
 
@@ -744,12 +785,21 @@ export const App: React.FC = () => {
       fetchQueueState();
     });
 
+    const unsubRecovery = window.api.onRecoveryCompleted?.((summary) => {
+      if (summary.recovered_count > 0 || summary.completed_count > 0) {
+        setRecoveryBanner(summary);
+        fetchDownloadTasks();
+        fetchQueueState();
+      }
+    });
+
     return () => {
       unsubProgress?.();
       unsubCompleted?.();
       unsubPaused?.();
       unsubResumed?.();
       unsubCleared?.();
+      unsubRecovery?.();
     };
   }, []);
 
@@ -2159,6 +2209,41 @@ export const App: React.FC = () => {
                     )}
                   </div>
 
+                  {/* Quick Bandwidth Speed Limit Selector */}
+                  <div className="flex items-center space-x-1.5 bg-brand-dark/70 border border-brand-dark px-2.5 py-1 rounded-md text-xs font-mono">
+                    <Gauge className="h-3.5 w-3.5 text-cyan-400" />
+                    <span className="text-neutral-400">Limit:</span>
+                    {[
+                      { label: "∞", val: 0, title: "Unlimited speed" },
+                      { label: "500K", val: 500, title: "500 KB/s limit" },
+                      { label: "1M", val: 1024, title: "1 MB/s limit" },
+                      { label: "2M", val: 2048, title: "2 MB/s limit" },
+                      { label: "5M", val: 5120, title: "5 MB/s limit" },
+                      { label: "10M", val: 10240, title: "10 MB/s limit" },
+                    ].map((item) => (
+                      <button
+                        key={item.val}
+                        onClick={() => handleSetSpeedLimit(item.val)}
+                        className={`px-1.5 py-0.5 rounded text-[11px] transition-colors ${
+                          speedLimitKbps === item.val
+                            ? "bg-cyan-600 text-white font-bold"
+                            : "text-neutral-400 hover:text-white"
+                        }`}
+                        title={item.title}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                    {speedLimitKbps > 0 &&
+                      ![500, 1024, 2048, 5120, 10240].includes(speedLimitKbps) && (
+                        <span className="px-1.5 py-0.5 rounded text-[11px] bg-cyan-600 text-white font-bold">
+                          {speedLimitKbps >= 1024
+                            ? `${(speedLimitKbps / 1024).toFixed(1)}M`
+                            : `${speedLimitKbps}K`}
+                        </span>
+                      )}
+                  </div>
+
                   {/* Batch Global Actions */}
                   <div className="flex items-center space-x-1.5">
                     <button
@@ -2212,11 +2297,50 @@ export const App: React.FC = () => {
                     }}
                     disabled={downloadTasksLoading}
                     className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-neutral-300 flex items-center space-x-1.5 transition-colors"
+                    title="Refresh download queue"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${downloadTasksLoading ? "animate-spin" : ""}`} />
                   </button>
+                  <button
+                    onClick={() => handleRecoverTasks(true)}
+                    disabled={isRecovering}
+                    className="px-3 py-1.5 bg-brand-dark hover:bg-neutral-800 border border-brand-dark rounded-md text-xs font-mono text-amber-300 flex items-center space-x-1.5 transition-colors"
+                    title="Scan and recover interrupted download tasks from disk & database"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRecovering ? "animate-spin text-amber-400" : ""}`} />
+                    <span>Recover</span>
+                  </button>
                 </div>
               </div>
+
+              {/* Interrupted Tasks Crash Recovery Banner */}
+              {recoveryBanner && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-center justify-between gap-4 text-amber-200">
+                  <div className="flex items-center gap-3">
+                    <RefreshCw className="w-5 h-5 text-amber-400 flex-shrink-0 animate-pulse" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">Session Recovery</p>
+                      <p className="text-xs text-amber-300/80 mt-0.5">{recoveryBanner.message}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {recoveryBanner.paused_count > 0 && (
+                      <button
+                        onClick={handleResumeAll}
+                        className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold shadow-md transition"
+                      >
+                        Resume All ({recoveryBanner.paused_count})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setRecoveryBanner(null)}
+                      className="px-2.5 py-1.5 text-neutral-400 hover:text-white rounded-lg text-xs transition"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Filter Pills */}
               <div className="flex items-center space-x-2 border-b border-brand-dark/60 pb-3">
@@ -2608,11 +2732,23 @@ export const App: React.FC = () => {
             </div>
           )}
 
+          {/* TAB 6: APPLICATION SETTINGS */}
+          {activeTab === "settings" && (
+            <SettingsView
+              systemInfo={systemInfo}
+              pythonStatus={pythonStatus}
+              ffmpegInfo={ffmpegInfo}
+              onConcurrencyChange={(val) => setConcurrency(val)}
+              onSpeedLimitChange={(val) => setSpeedLimitKbps(val)}
+            />
+          )}
+
           {activeTab !== "scan" &&
             activeTab !== "history" &&
             activeTab !== "library" &&
             activeTab !== "saved" &&
-            activeTab !== "downloads" && (
+            activeTab !== "downloads" &&
+            activeTab !== "settings" && (
             <div className="max-w-2xl mx-auto text-center py-24 space-y-3">
               <h2 className="text-lg font-bold text-brand-white capitalize">
                 {activeTab.replace("-", " ")}

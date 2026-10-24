@@ -24,6 +24,7 @@ class AppConfig(BaseModel):
     max_concurrent_downloads: int = Field(default=4, ge=1, le=16)
     max_retries: int = Field(default=3, ge=0, le=10)
     request_timeout_seconds: float = Field(default=30.0, ge=5.0, le=300.0)
+    max_download_speed_kbps: int = Field(default=0, ge=0)  # 0 = Unlimited
 
     # Defaults for Media Pipelines
     default_video_resolution: VideoResolution = VideoResolution.RES_1080P

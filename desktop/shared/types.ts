@@ -279,6 +279,16 @@ export interface DownloadQueueStateResult {
   };
 }
 
+export interface RecoverySummary {
+  recovered_count: number;
+  resumed_count: number;
+  paused_count: number;
+  completed_count: number;
+  tasks: DownloadTaskRecord[];
+  auto_resumed: boolean;
+  message: string;
+}
+
 export interface DesktopApi {
   /**
    * Simple connectivity probe between renderer and Electron main process.
@@ -453,6 +463,18 @@ export interface DesktopApi {
   ) => () => void;
 
   /**
+   * Scan for and recover interrupted download tasks from previous sessions.
+   */
+  recoverInterruptedTasks?: (autoResume?: boolean) => Promise<RecoverySummary>;
+
+  /**
+   * Subscribe to task recovery completed events.
+   */
+  onRecoveryCompleted?: (
+    callback: (summary: RecoverySummary) => void
+  ) => () => void;
+
+  /**
    * Open downloaded file or folder in Windows File Explorer.
    */
   openPath?: (targetPath: string) => Promise<void>;
@@ -519,6 +541,52 @@ export interface DesktopApi {
    * Convert local Windows file path to media-loader:// URL for in-app media playback & previews.
    */
   toMediaLoaderUrl?: (localPath: string) => string;
+
+  /**
+   * Fetch all application preferences from SQLite and active configuration.
+   */
+  getPreferences?: () => Promise<AppPreferences>;
+
+  /**
+   * Set maximum download speed limit in KB/s (0 = unlimited).
+   */
+  setSpeedLimit?: (speedLimitKbps: number) => Promise<{ speed_limit_kbps: number }>;
+
+  /**
+   * Get current download speed limit in KB/s (0 = unlimited).
+   */
+  getSpeedLimit?: () => Promise<{ speed_limit_kbps: number }>;
+
+  /**
+   * Update and persist application preferences.
+   */
+  updatePreferences?: (preferences: Partial<AppPreferences>) => Promise<AppPreferences>;
+
+  /**
+   * Reset application preferences to system defaults.
+   */
+  resetPreferences?: () => Promise<AppPreferences>;
+
+  /**
+   * Open native Windows directory selector dialog.
+   */
+  selectFolder?: (defaultPath?: string) => Promise<string | null>;
+}
+
+export interface AppPreferences {
+  download_dir: string;
+  image_download_dir?: string;
+  video_download_dir?: string;
+  max_concurrent_downloads: number;
+  max_download_speed_kbps?: number;
+  max_retries: number;
+  request_timeout_seconds: number;
+  default_video_resolution: string;
+  default_video_container: string;
+  default_image_format: string;
+  theme: "dark" | "light" | "system";
+  log_level: string;
+  [key: string]: unknown;
 }
 
 declare global {
